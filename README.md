@@ -51,7 +51,7 @@
 - Rust 侧统一 tokio 异步；所有命令结构体字段与 `api.js` 的 JSDoc 一一对应；
 - 仅面向 Windows，不做跨平台与移动端；
 - 不恢复旧版已移除的动态插件机制；
-- 数据目录：`%LOCALAPPDATA%\com.ppooqq.xon\`（与旧版 `ProjectManagerWpf` 隔离，迁移走导入/导出）。
+- 数据目录：`%LOCALAPPDATA%\xon\`（与旧版 `ProjectManagerWpf` 隔离，迁移走导入/导出）。
 
 ## 非目标
 
