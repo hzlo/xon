@@ -1,0 +1,455 @@
+/* XON 全局样式 —— 令牌与共享组件类,来源 design-system/xon/MASTER.md
+   (Density 8/10 · Dark Mode OLED · Real-Time Monitor + Terminal) */
+
+/* ------------------------------------------------------------- 令牌 */
+
+:root {
+  /* 色板(暗色为默认主题,亮色见 [data-theme="light"]) */
+  --color-primary: #1e293b;
+  --color-on-primary: #ffffff;
+  --color-secondary: #334155;
+  --color-on-secondary: #ffffff;
+  --color-background: #0f172a;
+  --color-foreground: #f8fafc;
+  --color-card: #1b2336;
+  --color-card-foreground: #f8fafc;
+  --color-muted: #272f42;
+  --color-muted-foreground: #94a3b8;
+  --color-border: #475569;
+  --color-destructive: #ef4444;
+  --color-on-destructive: #000000;
+  --color-ring: #ffffff;
+
+  /* 强调色族:默认派生自 #22C55E,运行时由设置里的强调色重新派生 */
+  --color-accent: #22c55e;
+  --color-on-accent: #0f172a;
+  --color-accent-hover: #16a34a;
+  --color-accent-active: #15803d;
+  --color-accent-text: #4ade80;
+  --color-accent-soft-bg: rgba(34, 197, 94, 0.14);
+  --color-accent-soft-border: rgba(34, 197, 94, 0.35);
+  --color-accent-glow: rgba(34, 197, 94, 0.8);
+  --color-accent-glow-soft: rgba(34, 197, 94, 0.35);
+  --overlay-scrim: rgba(2, 6, 23, 0.65);
+
+  /* 字体(本地打包,@fontsource 见 main.js) */
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --font-ui: "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --log-font-size: 12px;
+
+  /* 间距(density 8) */
+  --space-xs: 2px;
+  --space-sm: 4px;
+  --space-md: 8px;
+  --space-lg: 12px;
+  --space-xl: 16px;
+  --space-2xl: 24px;
+  --space-3xl: 32px;
+
+  /* 圆角与动效 */
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --dur-fast: 120ms;
+  --dur-normal: 200ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* 阴影(深色底上仅浮层使用) */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* 亮色主题(设置中按需开启;暗色仍是默认与主要设计目标) */
+html[data-theme="light"] {
+  --color-primary: #e2e8f0;
+  --color-on-primary: #0f172a;
+  --color-secondary: #cbd5e1;
+  --color-on-secondary: #0f172a;
+  --color-background: #f1f5f9;
+  --color-foreground: #0f172a;
+  --color-card: #ffffff;
+  --color-card-foreground: #0f172a;
+  --color-muted: #e2e8f0;
+  --color-muted-foreground: #64748b;
+  --color-border: #94a3b8;
+  --color-ring: #0f172a;
+  --overlay-scrim: rgba(15, 23, 42, 0.35);
+  --shadow-md: 0 4px 6px rgba(15, 23, 42, 0.08);
+  --shadow-xl: 0 20px 25px rgba(15, 23, 42, 0.12);
+}
+
+/* ------------------------------------------------------------- 基础 */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font: 400 13px/1.45 var(--font-ui);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* 键盘可达:统一 focus-visible 环 */
+:focus-visible {
+  outline: 1px solid var(--color-ring);
+  outline-offset: -1px;
+}
+
+button {
+  font-family: var(--font-ui);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* ------------------------------------------------------------- 滚动条 */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-secondary);
+  border-radius: 5px;
+  border: 2px solid var(--color-background);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ------------------------------------------------------------- 按钮 */
+
+.btn-primary,
+.btn-danger,
+.btn-secondary,
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: 5px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  font: 500 13px/1 var(--font-ui);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
+}
+
+/* Primary = Start / 运行语义(强调色随设置派生) */
+.btn-primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+}
+.btn-primary:active {
+  background: var(--color-accent-active);
+}
+
+/* Danger = Stop / 强杀语义 */
+.btn-danger {
+  background: var(--color-destructive);
+  color: #ffffff;
+}
+.btn-danger:hover {
+  background: #dc2626;
+}
+
+/* Secondary / 安静操作 */
+.btn-secondary {
+  background: var(--color-secondary);
+  color: var(--color-foreground);
+  border-color: var(--color-border);
+}
+.btn-secondary:hover {
+  background: var(--color-muted);
+}
+
+/* Ghost / 工具条图标按钮 */
+.btn-ghost {
+  background: transparent;
+  color: var(--color-muted-foreground);
+  padding: 5px 8px;
+}
+.btn-ghost:hover {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+}
+
+/* 危险语义的 ghost(行内停止/删除) */
+.btn-ghost.is-danger:hover {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+}
+
+/* 强调语义的 ghost(行内启动) */
+.btn-ghost.is-accent:hover {
+  background: var(--color-accent-soft-bg);
+  color: var(--color-accent-text);
+}
+
+.btn-primary:disabled,
+.btn-danger:disabled,
+.btn-secondary:disabled,
+.btn-ghost:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* 图标按钮统一尺寸 */
+.icon-btn {
+  padding: 4px;
+}
+.icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ------------------------------------------------------------- 输入 */
+
+.input,
+.select,
+.textarea {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+  padding: 5px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: 400 13px/1.4 var(--font-ui);
+  width: 100%;
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.textarea {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 64px;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--color-muted-foreground);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  border-color: var(--color-ring);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18);
+}
+
+.input[aria-invalid="true"],
+.textarea[aria-invalid="true"] {
+  border-color: var(--color-destructive);
+}
+
+/* ------------------------------------------------------------- 卡片 / 徽章 / 行 */
+
+.card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: var(--radius-sm);
+  font: 500 11px/1.6 var(--font-ui);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.badge .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.badge-running {
+  background: var(--color-accent-soft-bg);
+  color: var(--color-accent-text);
+  border: 1px solid var(--color-accent-soft-border);
+}
+.badge-running .dot {
+  background: var(--color-accent);
+  /* 最小 glow,仅用于运行状态点 */
+  box-shadow: 0 0 10px var(--color-accent-glow);
+}
+.badge-stopped {
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--color-muted-foreground);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+.badge-stopped .dot {
+  background: var(--color-muted-foreground);
+}
+.badge-error {
+  background: rgba(239, 68, 68, 0.14);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+}
+.badge-error .dot {
+  background: var(--color-destructive);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+.row:hover {
+  background: var(--color-muted);
+}
+.row[aria-selected="true"],
+.row.is-active {
+  background: var(--color-secondary);
+}
+.row:focus-visible {
+  outline: 1px solid var(--color-ring);
+  outline-offset: -1px;
+}
+
+/* ------------------------------------------------------------- 日志查看器 */
+
+.log-viewer {
+  background: var(--color-background);
+  font: 400 var(--log-font-size, 12px)/1.6 var(--font-mono);
+  padding: var(--space-md) var(--space-lg);
+  user-select: text;
+  cursor: text;
+  overflow: auto;
+}
+.log-line {
+  display: flex;
+  gap: var(--space-md);
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-radius: var(--radius-sm);
+}
+.log-line:hover {
+  background: var(--color-muted);
+}
+.log-ts {
+  color: var(--color-muted-foreground);
+  flex: none;
+}
+.log-info {
+  color: var(--color-foreground);
+}
+.log-warn {
+  color: #f59e0b;
+}
+.log-error {
+  color: var(--color-destructive);
+}
+.log-debug {
+  color: var(--color-muted-foreground);
+}
+.log-sys {
+  color: var(--color-muted-foreground);
+  font-style: italic;
+}
+
+/* ------------------------------------------------------------- 空状态 */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  height: 100%;
+  color: var(--color-muted-foreground);
+  text-align: center;
+  padding: var(--space-2xl);
+}
+.empty-state svg {
+  width: 28px;
+  height: 28px;
+  opacity: 0.6;
+}
+.empty-state .hint {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+/* ------------------------------------------------------------- 对话框 */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-scrim);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+.modal {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
+  box-shadow: var(--shadow-xl);
+  width: min(520px, calc(100vw - 48px));
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+.field > label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-muted-foreground);
+}
+.field-error {
+  font-size: 11px;
+  color: #f87171;
+}
