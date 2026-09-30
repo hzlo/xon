@@ -32,6 +32,8 @@ function onDragStart(e) {
 
 function onDragOver(e) {
   e.preventDefault();
+  // 阻断冒泡:否则根容器(拖到空白处=回根级)会再次处理,把节点又拖回根级
+  e.stopPropagation();
   e.dataTransfer.dropEffect = "move";
   dragOver.value = true;
 }
@@ -42,6 +44,7 @@ function onDragLeave() {
 
 function onDrop(e) {
   e.preventDefault();
+  e.stopPropagation(); // 同上:分组行已消费,不能再让根容器按"回根级"处理
   dragOver.value = false;
   const raw = e.dataTransfer.getData("application/x-xon");
   if (!raw) return;
