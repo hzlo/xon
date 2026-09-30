@@ -206,27 +206,25 @@ async function onImport() {
       <span class="toolbar-sep" aria-hidden="true"></span>
       <button class="btn-ghost" @click="toolbarNewGroup"><Plus />新建分组</button>
 
-      <template v-if="store.scenarios.value.length > 0">
-        <span class="toolbar-sep" aria-hidden="true"></span>
-        <select
-          class="select scenario-select"
-          aria-label="选择运行方案"
-          :value="activeScenarioId"
-          @change="scenarioChanged"
-        >
-          <option value="">运行方案…</option>
-          <option v-for="s in store.scenarios.value" :key="s.id" :value="s.id">{{ s.name }}({{ s.items.length }})</option>
-          <option value="__manage__">管理方案…</option>
-        </select>
-        <button
-          class="btn-ghost"
-          :disabled="!activeScenario"
-          :aria-label="`运行方案 ${activeScenario?.name ?? ''}`"
-          @click="runActiveScenario"
-        >
-          <ListChecks />批量启动
-        </button>
-      </template>
+      <span class="toolbar-sep" aria-hidden="true"></span>
+      <select
+        class="select scenario-select"
+        aria-label="选择运行方案"
+        :value="activeScenarioId"
+        @change="scenarioChanged"
+      >
+        <option value="">运行方案…</option>
+        <option v-for="s in store.scenarios.value" :key="s.id" :value="s.id">{{ s.name }}({{ s.items.length }})</option>
+        <option value="__manage__">新建 / 管理方案…</option>
+      </select>
+      <button
+        class="btn-ghost"
+        :disabled="!activeScenario"
+        :aria-label="`运行方案 ${activeScenario?.name ?? ''}`"
+        @click="runActiveScenario"
+      >
+        <ListChecks />批量启动
+      </button>
 
       <span class="spacer drag-fill" data-tauri-drag-region></span>
       <button class="btn-ghost" title="导出配置" aria-label="导出配置" @click="onExport"><Download /></button>
