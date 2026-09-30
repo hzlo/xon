@@ -79,7 +79,7 @@ function submit() {
           <input
             :id="`${kind}-name`"
             ref="nameInput"
-            v-model="form.name"
+            v-model="form.name" autocomplete="off" spellcheck="false" autocapitalize="off"
             class="input"
             type="text"
             :aria-invalid="errors.name ? 'true' : undefined"
@@ -91,7 +91,7 @@ function submit() {
         <div v-if="kind === 'project'" class="field">
           <label for="project-dir">项目目录</label>
           <div class="dir-row">
-            <input id="project-dir" v-model="form.dir" class="input" type="text" placeholder="D:\path\to\project" />
+            <input id="project-dir" v-model="form.dir" class="input" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="D:\path\to\project" />
             <button type="button" class="btn-secondary browse-btn" aria-label="浏览选择项目目录" @click="browseDir('dir')">
               <FolderOpen />浏览…
             </button>
@@ -128,7 +128,7 @@ function submit() {
           </div>
           <div class="field">
             <label for="command-env">环境变量(每行 KEY=VALUE)</label>
-            <textarea id="command-env" v-model="form.envText" class="textarea" rows="3" placeholder="NODE_ENV=development"></textarea>
+            <textarea id="command-env" autocomplete="off" spellcheck="false" v-model="form.envText" class="textarea" rows="3" placeholder="NODE_ENV=development"></textarea>
           </div>
         </template>
 

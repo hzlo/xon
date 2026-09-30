@@ -4,6 +4,9 @@
 /* ------------------------------------------------------------- 令牌 */
 
 :root {
+  /* 跟随主题的原生控件配色(滚动条/表单控件/输入法面板) */
+  color-scheme: dark;
+
   /* 色板(暗色为默认主题,亮色见 [data-theme="light"]) */
   --color-primary: #1e293b;
   --color-on-primary: #ffffff;
@@ -63,6 +66,7 @@
 
 /* 亮色主题(设置中按需开启;暗色仍是默认与主要设计目标) */
 html[data-theme="light"] {
+  color-scheme: light;
   --color-primary: #e2e8f0;
   --color-on-primary: #0f172a;
   --color-secondary: #cbd5e1;

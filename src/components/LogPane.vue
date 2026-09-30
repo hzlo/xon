@@ -163,7 +163,7 @@ function onClear() {
       <input
         v-model="query"
         class="input log-search"
-        type="search"
+        type="search" autocomplete="off" spellcheck="false"
         placeholder="搜索日志…"
         aria-label="搜索日志"
       />

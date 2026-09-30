@@ -799,6 +799,43 @@ fn current_close_action() -> String {
         .unwrap_or_else(default_close_action)
 }
 
+/// 去浏览器味:直调 WebView2 Settings,关闭原生右键菜单、自动填充、缩放、
+/// 滑动导航与浏览器加速键(发布版);dev 保留加速键(F12/F5 调试不受影响)。
+#[cfg(windows)]
+fn harden_webview(webview: tauri::webview::PlatformWebview) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2Settings, ICoreWebView2Settings2, ICoreWebView2Settings3,
+        ICoreWebView2Settings4, ICoreWebView2Settings5, ICoreWebView2Settings6,
+    };
+    use windows_core::Interface;
+
+    unsafe {
+        let controller = webview.controller();
+        let Ok(core) = controller.CoreWebView2() else { return };
+        let Ok(settings) = core.Settings() else { return };
+        let s: ICoreWebView2Settings = settings.cast().expect("webview settings");
+
+        let _ = s.SetAreDefaultContextMenusEnabled(false);
+        let _ = s.SetIsStatusBarEnabled(false);
+        if let Ok(s2) = settings.cast::<ICoreWebView2Settings2>() {
+            let _ = s2.SetIsZoomControlEnabled(false); // Ctrl+滚轮缩放
+        }
+        if let Ok(s3) = settings.cast::<ICoreWebView2Settings3>() {
+            // F5/Ctrl+R/Ctrl+P 等浏览器加速键:发布版关闭,开发版保留以便调试
+            let _ = s3.SetAreBrowserAcceleratorKeysEnabled(cfg!(debug_assertions));
+        }
+        if let Ok(s4) = settings.cast::<ICoreWebView2Settings4>() {
+            let _ = s4.SetIsGeneralAutofillEnabled(false); // 表单自动填充
+        }
+        if let Ok(s5) = settings.cast::<ICoreWebView2Settings5>() {
+            let _ = s5.SetIsPinchZoomEnabled(false); // 触控板捏合缩放
+        }
+        if let Ok(s6) = settings.cast::<ICoreWebView2Settings6>() {
+            let _ = s6.SetIsSwipeNavigationEnabled(false); // 滑动前进/后退
+        }
+    }
+}
+
 /// 退出前停掉所有运行中的进程树(同步:退出路径里不能 await)
 fn stop_all_sync(app: &AppHandle) {
     let pids: Vec<u32> = app
@@ -840,6 +877,13 @@ pub fn run() {
             open_vscode
         ])
         .setup(|app| {
+            // 去浏览器味(Windows:直调 WebView2 Settings)
+            if let Some(main) = app.get_webview_window("main") {
+                #[cfg(windows)]
+                let _ = main.with_webview(harden_webview);
+                let _ = &main;
+            }
+
             // 系统托盘:左键唤起主窗口,菜单提供显示/完全退出
             let show = MenuItem::with_id(app, "show", "显示 XON", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "完全退出", true, None::<&str>)?;

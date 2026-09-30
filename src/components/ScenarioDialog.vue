@@ -96,7 +96,7 @@ defineExpose({ checkedCount });
           <input
             id="scenario-name"
             ref="nameInput"
-            v-model="form.name"
+            v-model="form.name" autocomplete="off" spellcheck="false" autocapitalize="off"
             class="input"
             type="text"
             placeholder="如:前端开发环境"

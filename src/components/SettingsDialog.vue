@@ -66,7 +66,7 @@ function submit() {
                 class="accent-color"
                 type="color"
               />
-              <input v-model="form.accent" class="input" type="text" spellcheck="false" />
+              <input v-model="form.accent" class="input" type="text" spellcheck="false" autocomplete="off" />
             </div>
           </div>
         </div>
@@ -94,6 +94,7 @@ function submit() {
               min="10"
               max="18"
               step="1"
+              autocomplete="off"
             />
           </div>
         </div>

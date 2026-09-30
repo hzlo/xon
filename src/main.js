@@ -7,6 +7,8 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "./styles/base.css";
+import { installWebviewHardening } from "./webview-hardening.js";
 import App from "./App.vue";
 
+installWebviewHardening();
 createApp(App).mount("#app");
