@@ -13,14 +13,16 @@ export default defineConfig(() => ({
   clearScreen: false,
   // 2. tauri expects a fixed port, fail if that port is not available
   server: {
-    port: 1420,
+    // 19420:本机 WinNAT 动态段是 1024–15000,1420/8433 这类低位端口会被 EACCES 拒绑;
+    // 19420 在动态段之外,也低于其他 Windows 默认动态段(49152+),两边机器都稳
+    port: 19420,
     strictPort: true,
     host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 1421,
+          port: 19421,
         }
       : undefined,
     watch: {
