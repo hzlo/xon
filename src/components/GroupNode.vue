@@ -1,7 +1,7 @@
 <script setup>
 // 分组节点(递归):分组行(可折叠、可拖拽、可投放)+ 子分组 + 项目。
-import { inject, ref } from "vue";
-import { Folder, FolderPlus, Pencil, Plus, Trash2 } from "lucide-vue-next";
+import { computed, inject, ref } from "vue";
+import { ArrowUpToLine, Folder, FolderPlus, Pencil, Plus, Trash2 } from "lucide-vue-next";
 import { confirmAction, moveNode, removeGroup, store } from "../stores/app.js";
 import GroupNode from "./GroupNode.vue";
 import ProjectNode from "./ProjectNode.vue";
@@ -14,6 +14,13 @@ const props = defineProps({
 
 const handlers = inject("sidebarHandlers");
 const dragOver = ref(false);
+
+/** 是否已在根级(拖拽移到根级按钮仅对嵌套节点显示) */
+const isAtRoot = computed(() => (store.config.groups ?? []).includes(props.group));
+
+function onMoveToRoot() {
+  moveNode("group", props.group.id, null);
+}
 
 function toggle() {
   props.group.collapsed = !props.group.collapsed;
@@ -73,6 +80,7 @@ function onDrop(e) {
       <span class="group-name">{{ group.name }}</span>
       <span class="count">{{ (group.groups?.length ?? 0) + (group.projects?.length ?? 0) }}</span>
       <span class="row-actions manage-actions">
+        <button v-if="!isAtRoot" class="btn-ghost icon-btn" :aria-label="`把分组 ${group.name} 移到根级`" title="移到根级" @click.stop="onMoveToRoot"><ArrowUpToLine /></button>
         <button class="btn-ghost icon-btn" :aria-label="`在 ${group.name} 中新建子分组`" @click.stop="handlers.create({ kind: 'group', mode: 'create', parentGroup: group })"><Plus /></button>
         <button class="btn-ghost icon-btn" :aria-label="`在 ${group.name} 中新建项目`" @click.stop="handlers.create({ kind: 'project', mode: 'create', parentGroup: group })"><FolderPlus /></button>
         <button class="btn-ghost icon-btn" :aria-label="`重命名分组 ${group.name}`" @click.stop="handlers.edit({ kind: 'group', mode: 'edit', group })"><Pencil /></button>

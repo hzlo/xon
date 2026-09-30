@@ -1,7 +1,8 @@
 <script setup>
 // 项目节点:项目行(可拖拽移动)+ 其命令行(启动/停止/重启/编辑/删除)。
-import { inject } from "vue";
+import { computed, inject } from "vue";
 import {
+  ArrowUpToLine,
   CodeXml,
   Package,
   FolderOpen,
@@ -17,6 +18,7 @@ import {
 import {
   commandKey,
   confirmAction,
+  moveNode,
   notify,
   removeCommand,
   removeProject,
@@ -36,6 +38,13 @@ const props = defineProps({
 });
 
 const handlers = inject("sidebarHandlers");
+
+/** 是否已在根级(移到根级按钮仅对嵌套项目显示) */
+const isAtRoot = computed(() => (store.config.projects ?? []).includes(props.project));
+
+function onMoveToRoot() {
+  moveNode("project", props.project.id, null);
+}
 
 function toggle() {
   props.project.collapsed = !props.project.collapsed;
@@ -106,6 +115,7 @@ function onDragStart(e) {
       <span class="project-name">{{ project.name }}</span>
       <span class="count">{{ project.commands.length }}</span>
       <span class="row-actions manage-actions">
+        <button v-if="!isAtRoot" class="btn-ghost icon-btn" :aria-label="`把项目 ${project.name} 移到根级`" title="移到根级" @click.stop="onMoveToRoot"><ArrowUpToLine /></button>
         <button class="btn-ghost icon-btn" aria-label="打开目录" title="打开目录" @click.stop="openIn(openDirInExplorer)"><FolderOpen /></button>
         <button class="btn-ghost icon-btn" aria-label="打开终端" title="打开终端" @click.stop="openIn(openTerminal)"><SquareTerminal /></button>
         <button class="btn-ghost icon-btn" aria-label="VSCode 打开" title="VSCode 打开" @click.stop="openIn(openVscode)"><CodeXml /></button>
