@@ -144,7 +144,7 @@ function submit() {
 <style scoped>
 .modal-title {
   margin: 0 0 var(--space-xl);
-  font-size: 14px;
+  font-size: 1.0769rem;
   font-weight: 600;
 }
 .modal-actions {
@@ -155,7 +155,7 @@ function submit() {
 }
 .command-input {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 .dir-row {
   display: flex;
@@ -168,6 +168,6 @@ function submit() {
 .browse-btn {
   flex: none;
   padding: 5px 10px;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 </style>

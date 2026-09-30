@@ -27,7 +27,7 @@
 
 .group-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 1rem;
   cursor: pointer;
   min-width: 0;
   overflow: hidden;
@@ -46,13 +46,13 @@
 }
 
 .count {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--color-muted-foreground);
   font-family: var(--font-mono);
 }
 
 .project-name {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 500;
   color: var(--color-foreground);
   min-width: 0;
@@ -63,7 +63,7 @@
 }
 
 .cmd-name {
-  font-size: 13px;
+  font-size: 1rem;
   flex: none;
   max-width: 45%;
   overflow: hidden;
@@ -73,7 +73,7 @@
 .cmd-snippet {
   flex: 1;
   min-width: 0;
-  font: 400 11px/1.4 var(--font-mono);
+  font: 400 0.8462rem/1.4 var(--font-mono);
   color: var(--color-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -97,7 +97,7 @@
 .inline-empty {
   margin: var(--space-xs) 0 var(--space-md) var(--space-lg);
   padding: var(--space-sm) var(--space-md);
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--color-muted-foreground);
   opacity: 0.75;
   border: 1px dashed var(--color-muted);

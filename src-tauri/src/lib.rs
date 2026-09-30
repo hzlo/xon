@@ -83,6 +83,10 @@ fn default_log_size() -> u32 {
     12
 }
 
+fn default_ui_size() -> u32 {
+    13
+}
+
 fn default_close_action() -> String {
     "minimize".into()
 }
@@ -103,6 +107,9 @@ pub struct AppSettings {
     pub log_font: String,
     #[serde(default = "default_log_size")]
     pub log_font_size: u32,
+    /// 界面字号(px,全局 rem 基准)
+    #[serde(default = "default_ui_size")]
+    pub ui_font_size: u32,
     /// 关闭按钮行为:minimize = 最小化到托盘,exit = 完全退出
     #[serde(default = "default_close_action")]
     pub close_action: String,
@@ -116,6 +123,7 @@ impl Default for AppSettings {
             ui_font: String::new(),
             log_font: String::new(),
             log_font_size: default_log_size(),
+            ui_font_size: default_ui_size(),
             close_action: default_close_action(),
         }
     }
@@ -553,6 +561,70 @@ fn open_vscode(dir: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 枚举系统已安装字体(GDI EnumFontFamiliesExW,DEFAULT_CHARSET 去重排序)。
+/// 字体选择框的数据源:Windows 装了什么,这里就能列出什么。
+#[tauri::command]
+fn list_fonts() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        use std::collections::BTreeSet;
+        use windows::Win32::Foundation::LPARAM;
+        use windows::Win32::Graphics::Gdi::{
+            EnumFontFamiliesExW, GetDC, ReleaseDC, DEFAULT_CHARSET, ENUMLOGFONTEXW, LOGFONTW,
+            TEXTMETRICW,
+        };
+
+        unsafe extern "system" fn font_enum_proc(
+            _lf: *const LOGFONTW,
+            tm: *const TEXTMETRICW,
+            _font_type: u32,
+            l_param: LPARAM,
+        ) -> i32 {
+            unsafe {
+                if tm.is_null() {
+                    return 1;
+                }
+                // EnumFontFamiliesEx 的第二个参数实际指向 ENUMLOGFONTEXW(含完整字体族名)
+                let elf = &*(tm as *const ENUMLOGFONTEXW);
+                let name: String = elf
+                    .elfFullName
+                    .iter()
+                    .take_while(|&&c| c != 0)
+                    .map(|&c| char::from_u32(c as u32).unwrap_or('\u{FFFD}'))
+                    .collect();
+                if !name.trim().is_empty() {
+                    let set = &mut *(l_param.0 as *mut BTreeSet<String>);
+                    set.insert(name);
+                }
+                1
+            }
+        }
+
+        let mut set: BTreeSet<String> = BTreeSet::new();
+        unsafe {
+            let hdc = GetDC(None);
+            if hdc.is_invalid() {
+                return Vec::new();
+            }
+            let lf = LOGFONTW {
+                lfCharSet: DEFAULT_CHARSET,
+                ..Default::default()
+            };
+            let _ = EnumFontFamiliesExW(
+                hdc,
+                &lf,
+                Some(font_enum_proc),
+                LPARAM(&mut set as *mut BTreeSet<String> as isize),
+                0,
+            );
+            let _ = ReleaseDC(None, hdc);
+        }
+        return set.into_iter().collect();
+    }
+    #[cfg(not(windows))]
+    Vec::new()
+}
+
 // ---------------------------------------------------------------- 备份
 
 /// 每天首次保存时备份;文件名 data.backup-YYYYMMDD.json;超出保留数裁剪最旧的。
@@ -877,7 +949,7 @@ pub fn run() {
             stop_all_processes,
             list_running,
             open_terminal,
-            open_vscode
+            list_fonts
         ])
         .setup(|app| {
             // 去浏览器味(Windows:直调 WebView2 Settings)

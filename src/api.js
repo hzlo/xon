@@ -18,7 +18,7 @@ export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in
 /** @typedef {{id: string, name: string, cmd: string, cwd?: string, env?: Record<string, string>}} CommandSpec */
 /** @typedef {{id: string, name: string, items: ScenarioItem[]}} Scenario */
 /** @typedef {{projectId: string, commandId: string}} ScenarioItem */
-/** @typedef {{theme: 'dark'|'light', accent: string, uiFont: string, logFont: string, logFontSize: number, closeAction: 'minimize'|'exit'}} AppSettings */
+/** @typedef {{theme: 'dark'|'light', accent: string, uiFont: string, logFont: string, logFontSize: number, uiFontSize: number, closeAction: 'minimize'|'exit'}} AppSettings */
 /** @typedef {{pid: number, projectId: string, commandId: string, commandName: string, startedAtMs: number}} RunningInfo */
 /** @typedef {{pid: number, projectId: string, commandId: string, commandName: string, cmd: string, cwd: string, env: Record<string, string>}} StartRequest */
 /** @typedef {{pid: number, startedAtMs: number}} StartInfo */
@@ -123,12 +123,11 @@ export function openTerminal(dir) {
 }
 
 /**
- * 用 VSCode 打开项目目录。
- * @param {string} dir
- * @returns {Promise<void>}
+ * 枚举系统已安装字体(GDI,含所有 Windows 安装字体)。
+ * @returns {Promise<string[]>} 字体族名列表,已排序去重
  */
-export function openVscode(dir) {
-  return impl.openVscode(dir);
+export function listFonts() {
+  return impl.listFonts();
 }
 
 /**
@@ -179,8 +178,8 @@ const tauriImpl = {
       multiple: false,
     }),
   openTerminal: (dir) => invoke("open_terminal", { dir }),
-  openVscode: (dir) => invoke("open_vscode", { dir }),
   openDirInExplorer: (dir) => openPath(dir),
+  listFonts: () => invoke("list_fonts"),
   onProcLog: (cb) => listen("proc:log", (e) => cb(e.payload)),
   onProcExit: (cb) => listen("proc:exit", (e) => cb(e.payload)),
 };
@@ -338,8 +337,8 @@ function createMockImpl() {
     async openTerminal(dir) {
       window.alert(`[mock] 在终端打开:${dir}`);
     },
-    async openVscode(dir) {
-      window.alert(`[mock] 用 VSCode 打开:${dir}`);
+    async listFonts() {
+      return ["IBM Plex Sans", "Segoe UI", "Segoe UI Variable Text", "Microsoft YaHei", "JetBrains Mono", "Cascadia Mono", "Consolas", "SimSun", "Microsoft JhengHei"];
     },
     async openDirInExplorer(dir) {
       window.alert(`[mock] 在资源管理器打开:${dir}`);

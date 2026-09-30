@@ -18,6 +18,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   uiFont: "",
   logFont: "",
   logFontSize: 12,
+  uiFontSize: 13,
   closeAction: "minimize",
 });
 
@@ -85,6 +86,8 @@ export function applySettings(settings) {
       ? `'${logFont}', "JetBrains Mono", "Cascadia Mono", Consolas, monospace`
       : `"JetBrains Mono", "Cascadia Mono", Consolas, monospace`,
   );
+  // 界面字号 = 全站 rem 基准(html font-size),所有界面文字随之缩放
+  root.style.setProperty("--ui-font-size", `${Math.max(11, Math.min(18, Number(s.uiFontSize) || 13))}px`);
   root.style.setProperty("--log-font-size", `${Math.max(10, Math.min(18, Number(s.logFontSize) || 12))}px`);
 }
 

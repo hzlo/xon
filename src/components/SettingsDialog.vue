@@ -1,6 +1,8 @@
 <script setup>
-// 设置对话框:主题(深/浅)、强调色派生、界面与日志字体、日志字号、关闭行为。
+// 设置对话框:主题(深/浅)、强调色派生、界面/日志字体(系统全量字体,可输入可下拉)、
+// 界面与日志字号、关闭行为。
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { listFonts } from "../api.js";
 
 const props = defineProps({
   /** @type {import("api.js").AppSettings} */
@@ -8,8 +10,9 @@ const props = defineProps({
 });
 const emit = defineEmits(["submit", "cancel"]);
 
-const UI_FONTS = ["", "IBM Plex Sans", "Segoe UI", "Microsoft YaHei"];
-const LOG_FONTS = ["", "JetBrains Mono", "Cascadia Mono", "Consolas", "Courier New"];
+// 系统字体列表:首次打开时枚举一次,模块级缓存
+let fontCache = null;
+const systemFonts = ref([]);
 
 const form = reactive({
   theme: props.initial.theme ?? "dark",
@@ -17,6 +20,7 @@ const form = reactive({
   uiFont: props.initial.uiFont ?? "",
   logFont: props.initial.logFont ?? "",
   logFontSize: props.initial.logFontSize ?? 12,
+  uiFontSize: props.initial.uiFontSize ?? 13,
   closeAction: props.initial.closeAction ?? "minimize",
 });
 const accentInput = ref(null);
@@ -24,9 +28,15 @@ const accentInput = ref(null);
 function onKeydown(e) {
   if (e.key === "Escape") emit("cancel");
 }
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   nextTick(() => accentInput.value?.focus());
+  try {
+    fontCache ??= await listFonts();
+    systemFonts.value = fontCache;
+  } catch {
+    systemFonts.value = []; // 枚举失败时仍可手输字体名
+  }
 });
 onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 
@@ -34,9 +44,10 @@ function submit() {
   emit("submit", {
     theme: form.theme,
     accent: form.accent,
-    uiFont: form.uiFont,
-    logFont: form.logFont,
+    uiFont: form.uiFont.trim(),
+    logFont: form.logFont.trim(),
     logFontSize: Number(form.logFontSize) || 12,
+    uiFontSize: Number(form.uiFontSize) || 13,
     closeAction: form.closeAction,
   });
 }
@@ -71,20 +82,41 @@ function submit() {
           </div>
         </div>
 
+        <div class="field">
+          <label for="set-ui-font">界面字体(输入过滤,含全部系统已安装字体;留空用默认)</label>
+          <input
+            id="set-ui-font"
+            v-model="form.uiFont"
+            class="input"
+            type="text"
+            list="ui-font-options"
+            placeholder="默认(IBM Plex Sans)"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <datalist id="ui-font-options">
+            <option v-for="f in systemFonts" :key="`ui-${f}`" :value="f" />
+          </datalist>
+        </div>
+
         <div class="field-row">
           <div class="field">
-            <label for="set-ui-font">界面字体</label>
-            <select id="set-ui-font" v-model="form.uiFont" class="select">
-              <option v-for="f in UI_FONTS" :key="f" :value="f">{{ f || "默认(IBM Plex Sans)" }}</option>
-            </select>
+            <label for="set-log-font">日志字体(留空用默认)</label>
+            <input
+              id="set-log-font"
+              v-model="form.logFont"
+              class="input"
+              type="text"
+              list="log-font-options"
+              placeholder="默认(JetBrains Mono)"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <datalist id="log-font-options">
+              <option v-for="f in systemFonts" :key="`log-${f}`" :value="f" />
+            </datalist>
           </div>
-          <div class="field">
-            <label for="set-log-font">日志字体</label>
-            <select id="set-log-font" v-model="form.logFont" class="select">
-              <option v-for="f in LOG_FONTS" :key="f" :value="f">{{ f || "默认(JetBrains Mono)" }}</option>
-            </select>
-          </div>
-          <div class="field">
+          <div class="field field-narrow">
             <label for="set-log-size">日志字号(px)</label>
             <input
               id="set-log-size"
@@ -92,6 +124,19 @@ function submit() {
               class="input"
               type="number"
               min="10"
+              max="18"
+              step="1"
+              autocomplete="off"
+            />
+          </div>
+          <div class="field field-narrow">
+            <label for="set-ui-size">界面字号(px)</label>
+            <input
+              id="set-ui-size"
+              v-model.number="form.uiFontSize"
+              class="input"
+              type="number"
+              min="11"
               max="18"
               step="1"
               autocomplete="off"
@@ -122,7 +167,7 @@ function submit() {
 }
 .modal-title {
   margin: 0 0 var(--space-xl);
-  font-size: 14px;
+  font-size: 1.0769rem;
   font-weight: 600;
 }
 .field-row {
@@ -132,6 +177,9 @@ function submit() {
 }
 .field-row .field {
   flex: 1;
+}
+.field-narrow {
+  flex: 0 0 96px !important;
 }
 .accent-row {
   display: flex;

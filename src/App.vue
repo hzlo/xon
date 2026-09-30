@@ -338,7 +338,7 @@ async function onImport() {
   width: auto;
   min-width: 130px;
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 
 .spacer {
@@ -352,7 +352,7 @@ async function onImport() {
   gap: var(--space-sm);
   padding: 2px 10px;
   border-radius: var(--radius-sm);
-  font: 500 11px/1.6 var(--font-ui);
+  font: 500 0.8462rem/1.6 var(--font-ui);
   color: var(--color-muted-foreground);
   border: 1px solid rgba(148, 163, 184, 0.3);
   background: rgba(148, 163, 184, 0.12);

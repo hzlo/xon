@@ -3,7 +3,6 @@
 import { computed, inject } from "vue";
 import {
   ArrowUpToLine,
-  CodeXml,
   Package,
   FolderOpen,
   Pencil,
@@ -28,7 +27,7 @@ import {
   stopPid,
   store,
 } from "../stores/app.js";
-import { openDirInExplorer, openTerminal, openVscode } from "../api.js";
+import { openDirInExplorer, openTerminal } from "../api.js";
 import StatusBadge from "./StatusBadge.vue";
 
 defineOptions({ name: "ProjectNode" });
@@ -118,7 +117,6 @@ function onDragStart(e) {
         <button v-if="!isAtRoot" class="btn-ghost icon-btn" :aria-label="`把项目 ${project.name} 移到根级`" title="移到根级" @click.stop="onMoveToRoot"><ArrowUpToLine /></button>
         <button class="btn-ghost icon-btn" aria-label="打开目录" title="打开目录" @click.stop="openIn(openDirInExplorer)"><FolderOpen /></button>
         <button class="btn-ghost icon-btn" aria-label="打开终端" title="打开终端" @click.stop="openIn(openTerminal)"><SquareTerminal /></button>
-        <button class="btn-ghost icon-btn" aria-label="VSCode 打开" title="VSCode 打开" @click.stop="openIn(openVscode)"><CodeXml /></button>
         <button class="btn-ghost icon-btn" :aria-label="`在 ${project.name} 中新建命令`" @click.stop="handlers.create({ kind: 'command', mode: 'create', project })"><Plus /></button>
         <button class="btn-ghost icon-btn" :aria-label="`编辑项目 ${project.name}`" @click.stop="handlers.edit({ kind: 'project', mode: 'edit', project })"><Pencil /></button>
         <button class="btn-ghost icon-btn is-danger" :aria-label="`删除项目 ${project.name}`" @click.stop="onDelete"><Trash2 /></button>

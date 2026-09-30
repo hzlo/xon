@@ -138,7 +138,7 @@ defineExpose({ checkedCount });
 }
 .modal-title {
   margin: 0 0 var(--space-xl);
-  font-size: 14px;
+  font-size: 1.0769rem;
   font-weight: 600;
 }
 .scenario-tree {
@@ -154,7 +154,7 @@ defineExpose({ checkedCount });
 }
 .tree-group {
   margin: var(--space-sm) 0 0;
-  font-size: 11px;
+  font-size: 0.8462rem;
   font-weight: 600;
   color: var(--color-muted-foreground);
   text-transform: uppercase;
@@ -162,7 +162,7 @@ defineExpose({ checkedCount });
 }
 .tree-project {
   margin-left: var(--space-md);
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--color-muted-foreground);
   cursor: default;
 }
@@ -174,7 +174,7 @@ defineExpose({ checkedCount });
   padding: 2px 4px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 1rem;
 }
 .tree-command:hover {
   background: var(--color-secondary);
@@ -188,19 +188,19 @@ defineExpose({ checkedCount });
 .snippet {
   flex: 1;
   min-width: 0;
-  font: 400 11px/1.4 var(--font-mono);
+  font: 400 0.8462rem/1.4 var(--font-mono);
   color: var(--color-muted-foreground);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .live {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: var(--color-accent-text);
 }
 .tree-empty {
   color: var(--color-muted-foreground);
-  font-size: 12px;
+  font-size: 0.9231rem;
   padding: var(--space-md);
 }
 .modal-actions {
@@ -217,11 +217,11 @@ defineExpose({ checkedCount });
   margin-bottom: var(--space-lg);
 }
 .existing-label {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--color-muted-foreground);
 }
 .existing-chip {
-  font-size: 12px;
+  font-size: 0.9231rem;
   padding: 3px 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);

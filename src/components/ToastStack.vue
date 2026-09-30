@@ -30,7 +30,7 @@ import { toasts } from "../stores/app.js";
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   color: var(--color-foreground);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1.5;
   padding: 6px 14px;
   max-width: 70vw;

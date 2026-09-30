@@ -46,12 +46,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 }
 .confirm-title {
   margin: 0 0 var(--space-md);
-  font-size: 14px;
+  font-size: 1.0769rem;
   font-weight: 600;
 }
 .confirm-message {
   margin: 0;
-  font-size: 13px;
+  font-size: 1rem;
   line-height: 1.6;
   color: var(--color-muted-foreground);
   white-space: pre-line;

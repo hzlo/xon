@@ -38,7 +38,7 @@
   /* 字体(本地打包,@fontsource 见 main.js) */
   --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
   --font-ui: "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --log-font-size: 12px;
+  --log-font-size: 0.9231rem;
 
   /* 间距(density 8) */
   --space-xs: 2px;
@@ -97,10 +97,15 @@ body,
   margin: 0;
 }
 
+/* 界面字号 = 全站 rem 基准,设置中调整后所有界面文字随之缩放 */
+html {
+  font-size: var(--ui-font-size, 13px);
+}
+
 body {
   background: var(--color-background);
   color: var(--color-foreground);
-  font: 400 13px/1.45 var(--font-ui);
+  font: 400 1rem/1.45 var(--font-ui);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -162,7 +167,7 @@ button {
   padding: 5px 12px;
   border-radius: var(--radius-md);
   border: 1px solid transparent;
-  font: 500 13px/1 var(--font-ui);
+  font: 500 1rem/1 var(--font-ui);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
     border-color var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
@@ -250,14 +255,14 @@ button {
   padding: 5px 10px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  font: 400 13px/1.4 var(--font-ui);
+  font: 400 1rem/1.4 var(--font-ui);
   width: 100%;
   transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
 
 .textarea {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 0.9231rem;
   line-height: 1.6;
   resize: vertical;
   min-height: 64px;
@@ -296,7 +301,7 @@ button {
   gap: 4px;
   padding: 1px 8px;
   border-radius: var(--radius-sm);
-  font: 500 11px/1.6 var(--font-ui);
+  font: 500 0.8462rem/1.6 var(--font-ui);
   letter-spacing: 0.02em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -415,7 +420,7 @@ button {
   opacity: 0.6;
 }
 .empty-state .hint {
-  font-size: 12px;
+  font-size: 0.9231rem;
   opacity: 0.8;
 }
 
@@ -449,11 +454,11 @@ button {
   margin-bottom: var(--space-lg);
 }
 .field > label {
-  font-size: 12px;
+  font-size: 0.9231rem;
   font-weight: 500;
   color: var(--color-muted-foreground);
 }
 .field-error {
-  font-size: 11px;
+  font-size: 0.8462rem;
   color: #f87171;
 }

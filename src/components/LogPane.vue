@@ -249,18 +249,18 @@ function onClear() {
 }
 .log-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 1.0769rem;
   white-space: nowrap;
 }
 .log-proj {
-  font-size: 12px;
+  font-size: 0.9231rem;
   color: var(--color-muted-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .meta {
-  font: 400 11px/1.6 var(--font-mono);
+  font: 400 0.8462rem/1.6 var(--font-mono);
   color: var(--color-muted-foreground);
   white-space: nowrap;
 }
@@ -289,15 +289,15 @@ function onClear() {
 .log-search {
   width: 260px;
   padding: 3px 10px;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 .log-stream-filter {
   width: 110px;
   padding: 3px 8px;
-  font-size: 12px;
+  font-size: 0.9231rem;
 }
 .match-info {
-  font: 400 11px/1.6 var(--font-mono);
+  font: 400 0.8462rem/1.6 var(--font-mono);
   color: var(--color-muted-foreground);
   white-space: nowrap;
 }

@@ -30,6 +30,7 @@ encoding_rs = "0.8"
 # 去浏览器味:直调 WebView2 Settings 关闭右键菜单/自动填充/缩放/加速键等
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 windows-core = "0.62"
 
 
