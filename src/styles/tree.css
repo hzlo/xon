@@ -1,8 +1,9 @@
-/* 左侧树共享样式:分组/项目/命令行、拖拽高亮(非 scoped,类名均为树专用) */
+/* 左侧树共享样式:图标区分类型,缩进只按层级(每层一个统一的 .tree-children 容器) */
 
-.project {
+.tree-children {
+  margin-left: 13px;
   border-left: 1px solid var(--color-muted);
-  padding-left: var(--space-xs);
+  padding-left: 5px;
 }
 
 .row-icon {
@@ -52,11 +53,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.cmd-row {
-  padding-left: var(--space-lg);
-}
 .cmd-name {
   font-size: 13px;
   flex: none;

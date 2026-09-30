@@ -4,7 +4,7 @@ import { inject } from "vue";
 import {
   ChevronDown,
   CodeXml,
-  Folder,
+  Package,
   FolderOpen,
   Pencil,
   Play,
@@ -34,7 +34,6 @@ defineOptions({ name: "ProjectNode" });
 
 const props = defineProps({
   project: { type: Object, required: true },
-  depth: { type: Number, default: 0 },
 });
 
 const handlers = inject("sidebarHandlers");
@@ -97,7 +96,7 @@ function onDragStart(e) {
 </script>
 
 <template>
-  <div class="project" :style="depth > 0 ? { marginLeft: 'var(--space-lg)' } : null">
+  <div class="project">
     <div class="row project-row" draggable="true" @dragstart="onDragStart">
       <button
         class="btn-ghost icon-btn group-toggle"
@@ -107,7 +106,7 @@ function onDragStart(e) {
       >
         <ChevronDown class="chevron" :class="{ collapsed: project.collapsed }" />
       </button>
-      <Folder class="row-icon" />
+      <Package class="row-icon" />
       <span
         class="project-name"
         role="button"
@@ -126,7 +125,7 @@ function onDragStart(e) {
       </span>
     </div>
 
-    <template v-if="!project.collapsed">
+    <div v-if="!project.collapsed" class="tree-children">
       <div
         v-for="command in project.commands"
         :key="command.id"
@@ -175,7 +174,7 @@ function onDragStart(e) {
       </span>
     </div>
 
-    <p v-if="project.commands.length === 0" class="inline-empty">此项目还没有命令 — 悬停项目行,点 + 新建</p>
-    </template>
+      <p v-if="project.commands.length === 0" class="inline-empty">此项目还没有命令 — 悬停项目行,点 + 新建</p>
+    </div>
   </div>
 </template>

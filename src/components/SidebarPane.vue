@@ -68,12 +68,11 @@ const isEmpty = () =>
     </div>
 
     <template v-else>
-      <GroupNode v-for="group in store.config.groups" :key="group.id" :group="group" :depth="0" />
+      <GroupNode v-for="group in store.config.groups" :key="group.id" :group="group" />
       <ProjectNode
         v-for="project in store.config.projects ?? []"
         :key="project.id"
         :project="project"
-        :depth="0"
       />
     </template>
   </div>
