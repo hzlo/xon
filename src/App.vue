@@ -205,6 +205,7 @@ async function onImport() {
       <img class="brand-logo" :src="logoSrc" alt="XON" draggable="false" />
       <span class="toolbar-sep" aria-hidden="true"></span>
       <button class="btn-ghost" @click="toolbarNewGroup"><Plus />新建分组</button>
+      <button class="btn-ghost" @click="openCreate({ kind: 'project' })"><Plus />新建项目</button>
 
       <span class="toolbar-sep" aria-hidden="true"></span>
       <select

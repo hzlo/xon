@@ -56,10 +56,15 @@ const isEmpty = () =>
     <div v-if="isEmpty()" class="empty-state sidebar-empty">
       <Folder />
       <p>还没有分组和项目</p>
-      <p class="hint">点击顶部「新建分组」开始整理;分组可以无限嵌套,节点可以随意拖拽</p>
-      <button class="btn-secondary" @click="emit('create', { kind: 'group', mode: 'create' })">
-        <Plus />新建分组
-      </button>
+      <p class="hint">分组可以无限嵌套,节点可以随意拖拽;拖到空白处即回到根级</p>
+      <div class="empty-actions">
+        <button class="btn-secondary" @click="emit('create', { kind: 'group', mode: 'create' })">
+          <Plus />新建分组
+        </button>
+        <button class="btn-secondary" @click="emit('create', { kind: 'project', mode: 'create' })">
+          <Plus />新建项目
+        </button>
+      </div>
     </div>
 
     <template v-else>
@@ -87,6 +92,11 @@ const isEmpty = () =>
 
 .sidebar-empty {
   padding-top: var(--space-3xl);
+}
+
+.empty-actions {
+  display: flex;
+  gap: var(--space-md);
 }
 
 .root-drop {
