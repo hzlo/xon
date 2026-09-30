@@ -2,6 +2,7 @@
 // 项目节点:项目行(可拖拽移动)+ 其命令行(启动/停止/重启/编辑/删除)。
 import { inject } from "vue";
 import {
+  ChevronDown,
   CodeXml,
   Folder,
   FolderOpen,
@@ -37,6 +38,10 @@ const props = defineProps({
 });
 
 const handlers = inject("sidebarHandlers");
+
+function toggle() {
+  props.project.collapsed = !props.project.collapsed;
+}
 
 function keyOf(command) {
   return commandKey(props.project.id, command.id);
@@ -94,8 +99,23 @@ function onDragStart(e) {
 <template>
   <div class="project" :style="depth > 0 ? { marginLeft: 'var(--space-lg)' } : null">
     <div class="row project-row" draggable="true" @dragstart="onDragStart">
+      <button
+        class="btn-ghost icon-btn group-toggle"
+        :aria-expanded="!project.collapsed"
+        :aria-label="`${project.collapsed ? '展开' : '折叠'}项目 ${project.name}`"
+        @click="toggle"
+      >
+        <ChevronDown class="chevron" :class="{ collapsed: project.collapsed }" />
+      </button>
       <Folder class="row-icon" />
-      <span class="project-name" :title="project.dir">{{ project.name }}</span>
+      <span
+        class="project-name"
+        role="button"
+        tabindex="0"
+        :title="project.dir"
+        @click="toggle"
+        @keydown.enter.prevent="toggle"
+      >{{ project.name }}</span>
       <span class="row-actions manage-actions">
         <button class="btn-ghost icon-btn" aria-label="打开目录" title="打开目录" @click="openIn(openDirInExplorer)"><FolderOpen /></button>
         <button class="btn-ghost icon-btn" aria-label="打开终端" title="打开终端" @click="openIn(openTerminal)"><SquareTerminal /></button>
@@ -106,18 +126,19 @@ function onDragStart(e) {
       </span>
     </div>
 
-    <div
-      v-for="command in project.commands"
-      :key="command.id"
-      class="row cmd-row"
-      :class="{ 'is-active': isSelected(command) }"
-      role="button"
-      tabindex="0"
-      :aria-selected="isSelected(command)"
-      @click="select(command)"
-      @keydown.enter.prevent="select(command)"
-      @keydown.space.prevent="select(command)"
-    >
+    <template v-if="!project.collapsed">
+      <div
+        v-for="command in project.commands"
+        :key="command.id"
+        class="row cmd-row"
+        :class="{ 'is-active': isSelected(command) }"
+        role="button"
+        tabindex="0"
+        :aria-selected="isSelected(command)"
+        @click="select(command)"
+        @keydown.enter.prevent="select(command)"
+        @keydown.space.prevent="select(command)"
+      >
       <Terminal class="row-icon" />
       <span class="cmd-name">{{ command.name }}</span>
       <span class="cmd-snippet" :title="command.cmd">{{ command.cmd }}</span>
@@ -155,5 +176,6 @@ function onDragStart(e) {
     </div>
 
     <p v-if="project.commands.length === 0" class="inline-empty">此项目还没有命令 — 悬停项目行,点 + 新建</p>
+    </template>
   </div>
 </template>

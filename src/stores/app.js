@@ -333,7 +333,7 @@ export function removeGroup(group) {
 }
 
 export function addProject(group, { name, dir }) {
-  const project = { id: genId("p"), name, dir, commands: [] };
+  const project = { id: genId("p"), name, dir, collapsed: false, commands: [] };
   if (group) (group.projects ??= []).push(project);
   else (store.config.projects ??= []).push(project);
   persist();

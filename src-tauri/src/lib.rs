@@ -170,6 +170,9 @@ pub struct Project {
     pub name: String,
     #[serde(default)]
     pub dir: String,
+    /// 折叠命令列表(纯 UI 状态)
+    #[serde(default)]
+    pub collapsed: bool,
     #[serde(default)]
     pub commands: Vec<CommandSpec>,
 }
