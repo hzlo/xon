@@ -409,7 +409,7 @@ export async function startCommand(project, command) {
     env: command.env ?? {},
   };
   const info = await api.startProcess(req).catch((e) => {
-    window.alert(`启动「${command.name}」失败:${e}`);
+    notify(`启动「${command.name}」失败:${e}`);
     return null;
   });
   if (!info) return;
@@ -571,7 +571,11 @@ export async function importConfigFromFile() {
   const path = await api.pickOpenPath();
   if (!path) return false;
   const imported = await api.importConfig(path);
-  if (!window.confirm(`导入将覆盖当前的分组、运行方案与设置,继续?\n来源:${path}`)) return false;
+  const ok = await confirmAction(
+    `导入将覆盖当前的分组、运行方案与设置,继续?\n来源:${path}`,
+    { title: "导入配置", danger: true },
+  );
+  if (!ok) return false;
   store.config.version = imported.version ?? 1;
   store.config.groups = imported.groups ?? [];
   store.config.projects = imported.projects ?? [];
@@ -582,6 +586,37 @@ export async function importConfigFromFile() {
   persist();
   return true;
 }
+
+// ---------------------------------------------------------------- 确认框 / 轻提示
+
+// Tauri 下 window.confirm/alert 不可靠,一律走应用内自绘对话框。
+export const confirmState = ref(null); // { title, message, danger, resolve }
+
+export function confirmAction(message, { title = "确认操作", danger = false } = {}) {
+  return new Promise((resolve) => {
+    confirmState.value = { title, message, danger, resolve };
+  });
+}
+
+export function settleConfirm(result) {
+  confirmState.value?.resolve(result);
+  confirmState.value = null;
+}
+
+export const toasts = ref([]);
+let toastSeq = 0;
+
+/** 底部轻提示,3.2s 自动消失 */
+export function notify(text) {
+  const id = ++toastSeq;
+  toasts.value.push({ id, text });
+  setTimeout(() => {
+    const i = toasts.value.findIndex((t) => t.id === id);
+    if (i >= 0) toasts.value.splice(i, 1);
+  }, 3200);
+}
+
+// ---------------------------------------------------------------- 确认框 / 轻提示 结束
 
 // ---------------------------------------------------------------- 格式化
 

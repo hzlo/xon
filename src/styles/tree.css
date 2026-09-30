@@ -46,7 +46,8 @@
 
 .project-name {
   font-size: 12px;
-  color: var(--color-muted-foreground);
+  font-weight: 500;
+  color: var(--color-foreground);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

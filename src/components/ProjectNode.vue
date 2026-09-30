@@ -16,6 +16,8 @@ import {
 } from "lucide-vue-next";
 import {
   commandKey,
+  confirmAction,
+  notify,
   removeCommand,
   removeProject,
   restartCommand,
@@ -57,15 +59,15 @@ function select(command) {
   store.selectedKey.value = keyOf(props.project.id, command.id);
 }
 
-function onDelete() {
-  if (window.confirm(`删除项目「${props.project.name}」及其下所有命令?`)) {
+async function onDelete() {
+  if (await confirmAction(`删除项目「${props.project.name}」?\n其下所有命令将一并删除。`, { title: "删除项目", danger: true })) {
     if (props.project.commands.some((c) => isSelected(c))) store.selectedKey.value = null;
     removeProject(props.project);
   }
 }
 
-function onDeleteCommand(command) {
-  if (window.confirm(`删除命令「${command.name}」?`)) {
+async function onDeleteCommand(command) {
+  if (await confirmAction(`删除命令「${command.name}」?`, { title: "删除命令", danger: true })) {
     removeCommand(props.project, command);
   }
 }
@@ -73,13 +75,13 @@ function onDeleteCommand(command) {
 async function openIn(fn) {
   const dir = (props.project.dir || "").trim();
   if (!dir) {
-    window.alert("该项目未配置目录,请先编辑项目填写目录");
+    notify("该项目未配置目录,请先编辑项目填写目录");
     return;
   }
   try {
     await fn(dir);
   } catch (e) {
-    window.alert(String(e));
+    notify(String(e));
   }
 }
 

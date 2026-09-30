@@ -2,7 +2,7 @@
 // 分组节点(递归):分组行(可折叠、可拖拽、可投放)+ 子分组 + 项目。
 import { inject, ref } from "vue";
 import { ChevronDown, FolderPlus, Pencil, Plus, Trash2 } from "lucide-vue-next";
-import { moveNode, removeGroup, store } from "../stores/app.js";
+import { confirmAction, moveNode, removeGroup, store } from "../stores/app.js";
 import GroupNode from "./GroupNode.vue";
 import ProjectNode from "./ProjectNode.vue";
 
@@ -20,8 +20,8 @@ function toggle() {
   props.group.collapsed = !props.group.collapsed;
 }
 
-function onDelete() {
-  if (window.confirm(`删除分组「${props.group.name}」?其直属子分组与项目将上移到上一级。`)) {
+async function onDelete() {
+  if (await confirmAction(`删除分组「${props.group.name}」?\n其直属子分组与项目将上移到上一级。`, { title: "删除分组", danger: true })) {
     removeGroup(props.group);
   }
 }

@@ -19,9 +19,11 @@ import {
   addProject,
   addScenario,
   commandKey,
+  confirmAction,
   exportConfigToFile,
   importConfigFromFile,
   initStore,
+  notify,
   removeScenario,
   runScenario,
   updateCommand,
@@ -40,6 +42,8 @@ import LogPane from "./components/LogPane.vue";
 const EditDialog = defineAsyncComponent(() => import("./components/EditDialog.vue"));
 const SettingsDialog = defineAsyncComponent(() => import("./components/SettingsDialog.vue"));
 const ScenarioDialog = defineAsyncComponent(() => import("./components/ScenarioDialog.vue"));
+const ConfirmDialog = defineAsyncComponent(() => import("./components/ConfirmDialog.vue"));
+const ToastStack = defineAsyncComponent(() => import("./components/ToastStack.vue"));
 
 onMounted(() => {
   initStore();
@@ -170,7 +174,7 @@ function scenarioChanged(e) {
 async function runActiveScenario() {
   if (!activeScenario.value) return;
   const n = await runScenario(activeScenario.value);
-  if (n === 0) window.alert("方案里的命令都已在运行,或已不存在");
+  if (n === 0) notify("方案里的命令都已在运行,或已不存在");
 }
 
 function submitScenario(form) {
@@ -180,10 +184,10 @@ function submitScenario(form) {
   scenarioOpen.value = null;
 }
 
-function onDeleteScenario() {
+async function onDeleteScenario() {
   const s = scenarioOpen.value?.scenario;
   if (!s) return;
-  if (window.confirm(`删除方案「${s.name}」?`)) {
+  if (await confirmAction(`删除方案「${s.name}」?`, { title: "删除方案", danger: true })) {
     removeScenario(s);
     if (activeScenarioId.value === s.id) activeScenarioId.value = "";
     scenarioOpen.value = null;
@@ -281,6 +285,8 @@ async function onImport() {
       @cancel="settingsOpen = false"
     />
 
+    <ConfirmDialog />
+    <ToastStack />
     <div v-if="scenarioOpen" class="scenario-wrap">
       <ScenarioDialog
         :key="scenarioOpen.scenario?.id ?? 'new'"
