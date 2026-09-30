@@ -24,13 +24,6 @@
 .project-row {
   cursor: pointer;
 }
-/* 折叠状态用背景色表达(替代箭头) */
-.row.is-collapsed {
-  background: var(--color-muted);
-}
-.row.is-collapsed:hover {
-  background: var(--color-secondary);
-}
 
 .group-name {
   font-weight: 600;

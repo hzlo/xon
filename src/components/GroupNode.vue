@@ -61,7 +61,7 @@ function onDrop(e) {
   <section class="group">
     <div
       class="row group-row"
-      :class="{ 'drop-target': dragOver, 'is-collapsed': group.collapsed }"
+      :class="{ 'drop-target': dragOver }"
       draggable="true"
       @dragstart="onDragStart"
       @dragover="onDragOver"

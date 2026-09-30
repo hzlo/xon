@@ -98,7 +98,6 @@ function onDragStart(e) {
   <div class="project">
     <div
       class="row project-row"
-      :class="{ 'is-collapsed': project.collapsed }"
       draggable="true"
       @dragstart="onDragStart"
       @click="toggle"
