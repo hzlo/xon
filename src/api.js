@@ -12,8 +12,8 @@ import { openPath } from "@tauri-apps/plugin-opener";
 /** 是否运行在 Tauri WebView 内 */
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-/** @typedef {{version: number, groups: Group[], scenarios: Scenario[], settings: AppSettings}} AppConfig */
-/** @typedef {{id: string, name: string, collapsed?: boolean, projects: Project[]}} Group */
+/** @typedef {{version: number, groups: Group[], projects: Project[], scenarios: Scenario[], settings: AppSettings}} AppConfig */
+/** @typedef {{id: string, name: string, collapsed?: boolean, groups?: Group[], projects: Project[]}} Group */
 /** @typedef {{id: string, name: string, dir: string, commands: CommandSpec[]}} Project */
 /** @typedef {{id: string, name: string, cmd: string, cwd?: string, env?: Record<string, string>}} CommandSpec */
 /** @typedef {{id: string, name: string, items: ScenarioItem[]}} Scenario */
@@ -200,6 +200,21 @@ function createMockImpl() {
       {
         id: "g-demo",
         name: "示例分组",
+        groups: [
+          {
+            id: "g-sub",
+            name: "子分组(可无限嵌套)",
+            groups: [],
+            projects: [
+              {
+                id: "p-sub",
+                name: "嵌套项目",
+                dir: "D:\\projects\\private\\xon",
+                commands: [{ id: "c-sub", name: "嵌套命令", cmd: "echo hello from nested", cwd: "", env: {} }],
+              },
+            ],
+          },
+        ],
         projects: [
           {
             id: "p-demo",
@@ -211,6 +226,14 @@ function createMockImpl() {
             ],
           },
         ],
+      },
+    ],
+    projects: [
+      {
+        id: "p-root",
+        name: "根级项目",
+        dir: "D:\\projects\\private\\xon",
+        commands: [{ id: "c-root", name: "列目录", cmd: "dir", cwd: "", env: {} }],
       },
     ],
     scenarios: [

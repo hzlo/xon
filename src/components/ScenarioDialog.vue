@@ -1,6 +1,6 @@
 <script setup>
-// 运行方案管理:命名 + 勾选要批量启动的命令(按分组/项目分层展示)。
-import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+// 运行方案管理:命名 + 勾选要批量启动的命令(分组树扁平化展示,顺序即启动顺序)。
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { commandKey, runningOf, store } from "../stores/app.js";
 
 const props = defineProps({
@@ -17,6 +17,31 @@ const checked = reactive(
   Object.fromEntries((props.initial?.items ?? []).map((it) => [`${it.projectId}/${it.commandId}`, true])),
 );
 const nameInput = ref(null);
+
+/** 配置树 → 扁平命令列表(路径标签保留层级信息) */
+const flatCommands = computed(() => {
+  const out = [];
+  const walkProject = (project, path) => {
+    for (const command of project.commands ?? []) {
+      out.push({
+        key: commandKey(project.id, command.id),
+        projectId: project.id,
+        commandId: command.id,
+        path: [...path, project.name].join(" / "),
+        name: command.name,
+        cmd: command.cmd,
+      });
+    }
+  };
+  const walkGroup = (group, path) => {
+    const next = [...path, group.name];
+    for (const child of group.groups ?? []) walkGroup(child, next);
+    for (const project of group.projects ?? []) walkProject(project, next);
+  };
+  for (const group of store.config.groups ?? []) walkGroup(group, []);
+  for (const project of store.config.projects ?? []) walkProject(project, []);
+  return out;
+});
 
 function onKeydown(e) {
   if (e.key === "Escape") emit("cancel");
@@ -81,23 +106,18 @@ defineExpose({ checkedCount });
         <div class="field">
           <label>包含的命令(按此顺序批量启动)</label>
           <div class="scenario-tree">
-            <template v-for="group in store.config.groups" :key="group.id">
-              <p class="tree-group">{{ group.name }}</p>
-              <template v-for="project in group.projects" :key="project.id">
-                <label class="tree-project">{{ project.name }}</label>
-                <label
-                  v-for="command in project.commands"
-                  :key="command.id"
-                  class="tree-command"
-                >
-                  <input v-model="checked[commandKey(project.id, command.id)]" type="checkbox" />
-                  <span class="cmd">{{ command.name }}</span>
-                  <span class="snippet">{{ command.cmd }}</span>
-                  <span v-if="runningOf(commandKey(project.id, command.id))" class="live">运行中</span>
-                </label>
-              </template>
-            </template>
-            <p v-if="store.config.groups.length === 0" class="tree-empty">还没有命令,先去左侧创建</p>
+            <label
+              v-for="entry in flatCommands"
+              :key="entry.key"
+              class="tree-command"
+              :title="entry.path"
+            >
+              <input v-model="checked[entry.key]" type="checkbox" />
+              <span class="cmd">{{ entry.name }}</span>
+              <span class="snippet">{{ entry.path }} · {{ entry.cmd }}</span>
+              <span v-if="runningOf(entry.key)" class="live">运行中</span>
+            </label>
+            <p v-if="flatCommands.length === 0" class="tree-empty">还没有命令,先去左侧创建</p>
           </div>
         </div>
 

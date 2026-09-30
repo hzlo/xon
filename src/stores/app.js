@@ -91,7 +91,7 @@ export function applySettings(settings) {
 export const store = {
   loaded: ref(false),
   /** @type {import("vue").Reactive<import("api.js").AppConfig>} */
-  config: reactive({ version: 1, groups: [] }),
+  config: reactive({ version: 1, groups: [], projects: [], scenarios: [], settings: { ...DEFAULT_SETTINGS } }),
   /** pid → { pid, projectId, commandId, commandName, key, startedAtMs } */
   running: reactive(new Map()),
   /** 运行方案列表(引用 config.scenarios,单独暴露便于模板使用) */
@@ -126,19 +126,59 @@ export function commandKey(projectId, commandId) {
   return `${projectId}/${commandId}`;
 }
 
-/** 按 key 在配置树中定位 { group, project, command };找不到返回 null。 */
+/** 按 key 在配置树中定位 { group, project, command };找不到返回 null(分组树可无限嵌套) */
 export function locateCommand(key) {
   if (!key) return null;
-  for (const group of store.config.groups) {
-    for (const project of group.projects) {
-      for (const command of project.commands) {
-        if (command.id && commandKey(project.id, command.id) === key) {
-          return { group, project, command };
+  let found = null;
+  const walk = (groups) => {
+    for (const group of groups) {
+      for (const project of group.projects ?? []) {
+        for (const command of project.commands) {
+          if (command.id && commandKey(project.id, command.id) === key) {
+            found = { group, project, command };
+            return true;
+          }
         }
       }
+      if (walk(group.groups ?? [])) return true;
     }
+    return false;
+  };
+  walk(store.config.groups);
+  return found;
+}
+
+/** 深度优先找分组在父列表中的位置 */
+function findGroupPosition(groups, groupId) {
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
+    if (group.id === groupId) return { list: groups, index: i, group };
+    const deeper = findGroupPosition(group.groups ?? [], groupId);
+    if (deeper) return deeper;
   }
   return null;
+}
+
+export function findGroupById(groupId) {
+  return groupId ? findGroupPosition(store.config.groups, groupId) : null;
+}
+
+/** 深度优先找项目在父列表中的位置 */
+function findProjectPosition(groups, projectId) {
+  for (const group of groups) {
+    const list = group.projects ?? [];
+    const index = list.findIndex((p) => p.id === projectId);
+    if (index >= 0) return { list, index, project: list[index] };
+    const deeper = findProjectPosition(group.groups ?? [], projectId);
+    if (deeper) return deeper;
+  }
+  return null;
+}
+
+/** 判断 group(子树)里是否包含 groupId 的分组 */
+function subtreeHasGroup(group, groupId) {
+  if (group.id === groupId) return true;
+  return (group.groups ?? []).some((child) => subtreeHasGroup(child, groupId));
 }
 
 export function runningOf(key) {
@@ -204,6 +244,7 @@ export async function initStore() {
   const [config, runningList] = await Promise.all([api.loadConfig(), api.listRunning()]);
   store.config.version = config.version ?? 1;
   store.config.groups = config.groups ?? [];
+  store.config.projects = config.projects ?? [];
   store.config.scenarios = config.scenarios ?? [];
   store.config.settings = { ...DEFAULT_SETTINGS, ...(config.settings ?? {}) };
   applySettings(store.config.settings);
@@ -250,16 +291,30 @@ let persistTimer = null;
 function persist() {
   clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
-    const plain = JSON.parse(JSON.stringify({ version: store.config.version, groups: store.config.groups }));
+    const plain = JSON.parse(
+      JSON.stringify({
+        version: store.config.version,
+        groups: store.config.groups,
+        projects: store.config.projects ?? [],
+        scenarios: store.config.scenarios ?? [],
+        settings: store.config.settings,
+      }),
+    );
     api.saveConfig(plain).catch((e) => console.error("保存配置失败", e));
   }, PERSIST_DEBOUNCE_MS);
 }
 
 // ---------------------------------------------------------------- CRUD
 
-export function addGroup(name) {
-  const group = { id: genId("g"), name, collapsed: false, projects: [] };
-  store.config.groups.push(group);
+export function addGroup(parentId, name) {
+  const group = { id: genId("g"), name, collapsed: false, groups: [], projects: [] };
+  if (parentId) {
+    const pos = findGroupById(parentId);
+    if (!pos) return addGroup(null, name);
+    (pos.group.groups ??= []).push(group);
+  } else {
+    store.config.groups.push(group);
+  }
   persist();
   return group;
 }
@@ -269,11 +324,11 @@ export function updateGroup(group, name) {
   persist();
 }
 
+/** 删除分组:直属子分组与项目上移到父级(与旧版 XProj 一致,不删任何内容) */
 export function removeGroup(group) {
-  for (const project of group.projects) {
-    for (const cmd of project.commands) stopIfRunning(project, cmd, true);
-  }
-  store.config.groups.splice(store.config.groups.indexOf(group), 1);
+  const pos = findGroupById(group.id);
+  if (!pos) return;
+  pos.list.splice(pos.index, 1, ...(group.groups ?? []), ...(group.projects ?? []));
   persist();
 }
 
@@ -292,13 +347,9 @@ export function updateProject(project, { name, dir }) {
 
 export function removeProject(project) {
   for (const cmd of project.commands) stopIfRunning(project, cmd, true);
-  for (const group of store.config.groups) {
-    const i = group.projects.indexOf(project);
-    if (i >= 0) {
-      group.projects.splice(i, 1);
-      break;
-    }
-  }
+  const pos = findProjectPosition(store.config.groups, project.id)
+    ?? findProjectPosition([{ id: "__root__", projects: store.config.projects ?? [] }], project.id);
+  if (pos) pos.list.splice(pos.index, 1);
   persist();
 }
 
@@ -399,6 +450,45 @@ export async function restartCommand(project, command) {
   await startCommand(project, command);
 }
 
+/**
+ * 拖拽移动节点:分组或项目移动到目标分组(或根级)。
+ * 防御:分组不能移进自己/自己的后代;同层移动视为无变化。
+ */
+export function moveNode(type, id, targetGroupId) {
+  let node = null;
+  let fromList = null;
+  if (type === "group") {
+    const pos = findGroupById(id);
+    if (!pos) return false;
+    node = pos.group;
+    fromList = pos.list;
+    if (targetGroupId && (id === targetGroupId || subtreeHasGroup(node, targetGroupId))) {
+      return false; // 不能移进自己或自己的后代
+    }
+  } else {
+    const pos = findProjectPosition(store.config.groups, id)
+      ?? findProjectPosition([{ id: "__root__", projects: store.config.projects ?? [] }], id);
+    if (!pos) return false;
+    node = pos.project;
+    fromList = pos.list;
+  }
+
+  let toList;
+  if (targetGroupId) {
+    const target = findGroupById(targetGroupId);
+    if (!target) return false;
+    toList = type === "group" ? (target.group.groups ??= []) : (target.group.projects ??= []);
+  } else {
+    toList = type === "group" ? store.config.groups : (store.config.projects ??= []);
+  }
+  if (toList === fromList) return false;
+
+  fromList.splice(fromList.indexOf(node), 1);
+  toList.push(node);
+  persist();
+  return true;
+}
+
 // ---------------------------------------------------------------- 设置
 
 export function updateSettings(patch) {
@@ -409,16 +499,20 @@ export function updateSettings(patch) {
 
 // ---------------------------------------------------------------- 运行方案
 
-/** 按 id 在配置树中定位项目与命令;已删除的返回 null */
+/** 按 id 在配置树中定位项目与命令(含根级项目);已删除的返回 null */
 export function locateById(projectId, commandId) {
-  for (const group of store.config.groups) {
-    const project = group.projects.find((p) => p.id === projectId);
-    if (project) {
-      const command = project.commands.find((c) => c.id === commandId);
-      if (command) return { project, command };
-    }
-  }
-  return null;
+  const found = locateProjectAny(projectId);
+  if (!found) return null;
+  const command = found.project.commands.find((c) => c.id === commandId);
+  if (!command) return null;
+  return { project: found.project, command };
+}
+
+function locateProjectAny(projectId) {
+  const inRoot = (store.config.projects ?? []).find((p) => p.id === projectId);
+  if (inRoot) return { project: inRoot };
+  const pos = findProjectPosition(store.config.groups, projectId);
+  return pos ? { project: pos.project } : null;
 }
 
 export function addScenario(name, items) {
@@ -463,6 +557,7 @@ export async function exportConfigToFile() {
     JSON.stringify({
       version: store.config.version,
       groups: store.config.groups,
+      projects: store.config.projects ?? [],
       scenarios: store.config.scenarios ?? [],
       settings: store.config.settings,
     }),
@@ -478,6 +573,7 @@ export async function importConfigFromFile() {
   if (!window.confirm(`导入将覆盖当前的分组、运行方案与设置,继续?\n来源:${path}`)) return false;
   store.config.version = imported.version ?? 1;
   store.config.groups = imported.groups ?? [];
+  store.config.projects = imported.projects ?? [];
   store.config.scenarios = imported.scenarios ?? [];
   store.config.settings = { ...DEFAULT_SETTINGS, ...(imported.settings ?? {}) };
   applySettings(store.config.settings);

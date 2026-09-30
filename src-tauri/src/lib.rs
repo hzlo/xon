@@ -57,6 +57,9 @@ pub struct AppConfig {
     pub version: u32,
     #[serde(default)]
     pub groups: Vec<Group>,
+    /// 不挂在任何分组下的项目(自由树的根级)
+    #[serde(default)]
+    pub projects: Vec<Project>,
     /// 运行方案:按场景批量启动的命令集合
     #[serde(default)]
     pub scenarios: Vec<Scenario>,
@@ -139,6 +142,7 @@ impl Default for AppConfig {
         Self {
             version: default_version(),
             groups: Vec::new(),
+            projects: Vec::new(),
             scenarios: Vec::new(),
             settings: AppSettings::default(),
         }
@@ -152,6 +156,9 @@ pub struct Group {
     pub name: String,
     #[serde(default)]
     pub collapsed: bool,
+    /// 子分组:分组树可无限嵌套(与旧版 XProj 一致)
+    #[serde(default)]
+    pub groups: Vec<Group>,
     #[serde(default)]
     pub projects: Vec<Project>,
 }

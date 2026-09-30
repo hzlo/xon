@@ -1,0 +1,106 @@
+/* 左侧树共享样式:分组/项目/命令行、拖拽高亮(非 scoped,类名均为树专用) */
+
+.project {
+  border-left: 1px solid var(--color-muted);
+  padding-left: var(--space-xs);
+}
+
+.row-icon {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--color-muted-foreground);
+}
+
+.project-row,
+.cmd-row,
+.group-row {
+  width: 100%;
+}
+
+.group-name {
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-toggle {
+  flex: none;
+}
+.chevron {
+  transition: transform var(--dur-normal) var(--ease);
+}
+.chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.count {
+  font-size: 11px;
+  color: var(--color-muted-foreground);
+  font-family: var(--font-mono);
+}
+
+.project-name {
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmd-row {
+  padding-left: var(--space-lg);
+}
+.cmd-name {
+  font-size: 13px;
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cmd-snippet {
+  flex: 1;
+  min-width: 0;
+  font: 400 11px/1.4 var(--font-mono);
+  color: var(--color-muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  flex: none;
+}
+.manage-actions {
+  visibility: hidden;
+}
+.row:hover .manage-actions,
+.row:focus-within .manage-actions {
+  visibility: visible;
+}
+
+.inline-empty {
+  margin: var(--space-xs) 0 var(--space-md) var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  opacity: 0.75;
+  border: 1px dashed var(--color-muted);
+  border-radius: var(--radius-md);
+}
+
+/* 拖拽投放目标高亮 */
+.drop-target {
+  background: var(--color-accent-soft-bg) !important;
+  outline: 1px dashed var(--color-accent-soft-border);
+  outline-offset: -1px;
+}

@@ -1,7 +1,18 @@
 <script setup>
-// 应用外壳:工具条(分组/方案/导入导出/设置)+ 左监视 / 右终端双面板 + 可拖拽分隔条(键盘可达)。
+// 应用外壳:自定义标题栏(拖拽/窗口控制)+ 工具条(分组/方案/导入导出/设置)
+// + 左侧无限嵌套分组树 / 右侧实时终端,双面板可拖拽调整宽度。
 import { computed, defineAsyncComponent, onMounted, ref } from "vue";
-import { ListChecks, Play, Plus, Settings as SettingsIcon, Upload, Download, Zap } from "lucide-vue-next";
+import {
+  ListChecks,
+  Minus,
+  Plus,
+  Settings as SettingsIcon,
+  Square,
+  Upload,
+  Download,
+  X,
+} from "lucide-vue-next";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   addCommand,
   addGroup,
@@ -20,6 +31,9 @@ import {
   updateSettings,
   store,
 } from "./stores/app.js";
+import { isTauri } from "./api.js";
+import logoDark from "./assets/logo-dark.png";
+import logoLight from "./assets/logo-light.png";
 import SidebarPane from "./components/SidebarPane.vue";
 import LogPane from "./components/LogPane.vue";
 
@@ -30,6 +44,10 @@ const ScenarioDialog = defineAsyncComponent(() => import("./components/ScenarioD
 onMounted(() => {
   initStore();
 });
+
+// ---- 窗口控制(自定义标题栏;浏览器预览下不渲染) ----
+const appWindow = isTauri ? getCurrentWindow() : null;
+const logoSrc = computed(() => (store.config.settings?.theme === "light" ? logoLight : logoDark));
 
 // ---- 面板分隔条 ----
 const SIDEBAR_MIN = 260;
@@ -65,15 +83,15 @@ function onSplitterKeydown(e) {
   e.preventDefault();
 }
 
-// ---- 新建 / 编辑对话框(分组、项目、命令) ----
+// ---- 新建 / 编辑对话框(分组、项目、命令;mode 区分新建/编辑) ----
 const dialog = ref(null);
 
 function openCreate(payload) {
-  dialog.value = { kind: payload.kind, group: payload.group ?? null, project: payload.project ?? null };
+  dialog.value = { kind: payload.kind, mode: "create", parentGroup: payload.parentGroup ?? null, project: payload.project ?? null };
 }
 
 function openEdit(payload) {
-  dialog.value = payload;
+  dialog.value = { ...payload, mode: "edit" };
 }
 
 function closeDialog() {
@@ -83,23 +101,33 @@ function closeDialog() {
 const dialogTitle = computed(() => {
   const d = dialog.value;
   if (!d) return "";
-  const editing = Boolean(d.group || d.project || d.command);
-  if (d.kind === "command") return editing ? "编辑命令" : "新建命令";
-  if (d.kind === "project") return editing ? "编辑项目" : "新建项目";
-  return editing ? "重命名分组" : "新建分组";
+  if (d.mode === "edit") {
+    if (d.kind === "command") return "编辑命令";
+    if (d.kind === "project") return "编辑项目";
+    return "重命名分组";
+  }
+  if (d.kind === "command") return "新建命令";
+  if (d.kind === "project") return d.parentGroup ? `在「${d.parentGroup.name}」中新建项目` : "新建项目";
+  return d.parentGroup ? `在「${d.parentGroup.name}」中新建子分组` : "新建分组";
+});
+
+const dialogInitial = computed(() => {
+  const d = dialog.value;
+  if (!d || d.mode !== "edit") return {};
+  return d.command ?? d.project ?? d.group ?? {};
 });
 
 function submitDialog(form) {
   const d = dialog.value;
   if (!d) return;
   if (d.kind === "group") {
-    if (d.group) updateGroup(d.group, form.name);
-    else addGroup(form.name);
+    if (d.mode === "edit") updateGroup(d.group, form.name);
+    else addGroup(d.parentGroup?.id ?? null, form.name);
   } else if (d.kind === "project") {
-    if (d.project) updateProject(d.project, form);
-    else addProject(d.group, form);
+    if (d.mode === "edit") updateProject(d.project, form);
+    else addProject(d.parentGroup, form);
   } else if (d.kind === "command") {
-    if (d.command) {
+    if (d.mode === "edit") {
       updateCommand(d.command, form);
       store.selectedKey.value = commandKey(d.project.id, d.command.id);
     } else {
@@ -173,10 +201,8 @@ async function onImport() {
 
 <template>
   <div class="app">
-    <header class="toolbar">
-      <span class="brand" title="XON — XON/XOFF:启动即流,停止即断">
-        <Zap :size="14" aria-hidden="true" />XON
-      </span>
+    <header class="titlebar" data-tauri-drag-region>
+      <img class="brand-logo" :src="logoSrc" alt="XON" draggable="false" />
       <span class="toolbar-sep" aria-hidden="true"></span>
       <button class="btn-ghost" @click="toolbarNewGroup"><Plus />新建分组</button>
 
@@ -198,11 +224,11 @@ async function onImport() {
           :aria-label="`运行方案 ${activeScenario?.name ?? ''}`"
           @click="runActiveScenario"
         >
-          <Play />批量启动
+          <ListChecks />批量启动
         </button>
       </template>
 
-      <span class="spacer" />
+      <span class="spacer drag-fill" data-tauri-drag-region></span>
       <button class="btn-ghost" title="导出配置" aria-label="导出配置" @click="onExport"><Download /></button>
       <button class="btn-ghost" title="导入配置" aria-label="导入配置" @click="onImport"><Upload /></button>
       <button class="btn-ghost" title="设置" aria-label="设置" @click="settingsOpen = true"><SettingsIcon /></button>
@@ -210,6 +236,12 @@ async function onImport() {
         <span class="dot" aria-hidden="true"></span>
         运行中 {{ store.runningCount.value }}
       </span>
+
+      <div v-if="appWindow" class="win-controls">
+        <button class="win-btn" aria-label="最小化" @click="appWindow.minimize()"><Minus /></button>
+        <button class="win-btn" aria-label="最大化/还原" @click="appWindow.toggleMaximize()"><Square /></button>
+        <button class="win-btn win-close" aria-label="关闭窗口" @click="appWindow.close()"><X /></button>
+      </div>
     </header>
 
     <main class="workspace">
@@ -237,8 +269,8 @@ async function onImport() {
       v-if="dialog"
       :kind="dialog.kind"
       :title="dialogTitle"
-      :initial="dialog.command ?? dialog.project ?? dialog.group ?? {}"
-      :defaults="{ dir: dialog.project?.dir ?? '' }"
+      :initial="dialogInitial"
+      :defaults="{ dir: dialog.project?.dir ?? dialog.parentGroup?.projects?.[0]?.dir ?? '' }"
       @submit="submitDialog"
       @cancel="closeDialog"
     />
@@ -272,24 +304,23 @@ async function onImport() {
   height: 100%;
 }
 
-.toolbar {
+.titlebar {
   display: flex;
   align-items: center;
   gap: var(--space-lg);
-  padding: var(--space-sm) var(--space-lg);
+  padding-left: var(--space-lg);
+  height: 40px;
   background: var(--color-primary);
   border-bottom: 1px solid var(--color-border);
   flex: none;
+  user-select: none;
 }
 
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-sm);
-  font: 700 13px/1 var(--font-mono);
-  letter-spacing: 0.08em;
-  color: var(--color-foreground);
-  text-shadow: 0 0 10px var(--color-accent-glow-soft);
+.brand-logo {
+  height: 22px;
+  width: auto;
+  flex: none;
+  pointer-events: none;
 }
 
 .toolbar-sep {
@@ -307,6 +338,7 @@ async function onImport() {
 
 .spacer {
   flex: 1;
+  align-self: stretch;
 }
 
 .running-chip {
@@ -334,6 +366,32 @@ async function onImport() {
 .running-chip.active .dot {
   background: var(--color-accent);
   box-shadow: 0 0 10px var(--color-accent-glow);
+}
+
+/* 窗口控制按钮:贴右缘、占满标题栏高度 */
+.win-controls {
+  display: flex;
+  align-self: stretch;
+  flex: none;
+}
+.win-btn {
+  width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--color-muted-foreground);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.win-btn:hover {
+  background: var(--color-secondary);
+  color: var(--color-foreground);
+}
+.win-close:hover {
+  background: var(--color-destructive);
+  color: #ffffff;
 }
 
 .workspace {
