@@ -19,6 +19,19 @@
   width: 100%;
 }
 
+/* 分组/项目行可点击折叠 */
+.group-row,
+.project-row {
+  cursor: pointer;
+}
+/* 折叠状态用背景色表达(替代箭头) */
+.row.is-collapsed {
+  background: var(--color-muted);
+}
+.row.is-collapsed:hover {
+  background: var(--color-secondary);
+}
+
 .group-name {
   font-weight: 600;
   font-size: 13px;

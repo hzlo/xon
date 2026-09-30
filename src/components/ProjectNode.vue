@@ -2,7 +2,6 @@
 // 项目节点:项目行(可拖拽移动)+ 其命令行(启动/停止/重启/编辑/删除)。
 import { inject } from "vue";
 import {
-  ChevronDown,
   CodeXml,
   Package,
   FolderOpen,
@@ -97,31 +96,23 @@ function onDragStart(e) {
 
 <template>
   <div class="project">
-    <div class="row project-row" draggable="true" @dragstart="onDragStart">
-      <button
-        class="btn-ghost icon-btn group-toggle"
-        :aria-expanded="!project.collapsed"
-        :aria-label="`${project.collapsed ? '展开' : '折叠'}项目 ${project.name}`"
-        @click="toggle"
-      >
-        <ChevronDown class="chevron" :class="{ collapsed: project.collapsed }" />
-      </button>
+    <div
+      class="row project-row"
+      :class="{ 'is-collapsed': project.collapsed }"
+      draggable="true"
+      @dragstart="onDragStart"
+      @click="toggle"
+    >
       <Package class="row-icon" />
-      <span
-        class="project-name"
-        role="button"
-        tabindex="0"
-        :title="project.dir"
-        @click="toggle"
-        @keydown.enter.prevent="toggle"
-      >{{ project.name }}</span>
+      <span class="project-name">{{ project.name }}</span>
+      <span class="count">{{ project.commands.length }}</span>
       <span class="row-actions manage-actions">
-        <button class="btn-ghost icon-btn" aria-label="打开目录" title="打开目录" @click="openIn(openDirInExplorer)"><FolderOpen /></button>
-        <button class="btn-ghost icon-btn" aria-label="打开终端" title="打开终端" @click="openIn(openTerminal)"><SquareTerminal /></button>
-        <button class="btn-ghost icon-btn" aria-label="VSCode 打开" title="VSCode 打开" @click="openIn(openVscode)"><CodeXml /></button>
-        <button class="btn-ghost icon-btn" :aria-label="`在 ${project.name} 中新建命令`" @click="handlers.create({ kind: 'command', mode: 'create', project })"><Plus /></button>
-        <button class="btn-ghost icon-btn" :aria-label="`编辑项目 ${project.name}`" @click="handlers.edit({ kind: 'project', mode: 'edit', project })"><Pencil /></button>
-        <button class="btn-ghost icon-btn is-danger" :aria-label="`删除项目 ${project.name}`" @click="onDelete"><Trash2 /></button>
+        <button class="btn-ghost icon-btn" aria-label="打开目录" title="打开目录" @click.stop="openIn(openDirInExplorer)"><FolderOpen /></button>
+        <button class="btn-ghost icon-btn" aria-label="打开终端" title="打开终端" @click.stop="openIn(openTerminal)"><SquareTerminal /></button>
+        <button class="btn-ghost icon-btn" aria-label="VSCode 打开" title="VSCode 打开" @click.stop="openIn(openVscode)"><CodeXml /></button>
+        <button class="btn-ghost icon-btn" :aria-label="`在 ${project.name} 中新建命令`" @click.stop="handlers.create({ kind: 'command', mode: 'create', project })"><Plus /></button>
+        <button class="btn-ghost icon-btn" :aria-label="`编辑项目 ${project.name}`" @click.stop="handlers.edit({ kind: 'project', mode: 'edit', project })"><Pencil /></button>
+        <button class="btn-ghost icon-btn is-danger" :aria-label="`删除项目 ${project.name}`" @click.stop="onDelete"><Trash2 /></button>
       </span>
     </div>
 
