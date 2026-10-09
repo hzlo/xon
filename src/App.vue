@@ -5,13 +5,11 @@ import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } fr
 import {
   ChevronDown,
   Download,
-  Minus,
   Play,
   Plus,
   Settings as SettingsIcon,
   Square,
   Upload,
-  X,
   Zap,
 } from "lucide-vue-next";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -53,9 +51,34 @@ const UpdateDialog = defineAsyncComponent(() => import("./components/UpdateDialo
 const activeUpdate = ref(null);
 const currentAppVersion = "0.1.0";
 
+// ---- 窗口控制(自定义标题栏;浏览器预览下不渲染) ----
+const appWindow = isTauri ? getCurrentWindow() : null;
+const isMaximized = ref(false);
+
+async function toggleMaximize() {
+  if (!appWindow) return;
+  await appWindow.toggleMaximize();
+  isMaximized.value = await appWindow.isMaximized();
+}
+
+function onTitlebarDblClick(e) {
+  if (e.target.hasAttribute("data-tauri-drag-region")) {
+    toggleMaximize();
+  }
+}
+
 onMounted(() => {
   initStore();
   window.addEventListener("click", closeScenarioMenu);
+
+  if (appWindow) {
+    appWindow.isMaximized().then((m) => {
+      isMaximized.value = m;
+    });
+    appWindow.onResized(async () => {
+      isMaximized.value = await appWindow.isMaximized();
+    });
+  }
 
   // 启动 4 秒后静默检查更新(首屏轻量加载)
   setTimeout(async () => {
@@ -74,8 +97,6 @@ onUnmounted(() => {
   window.removeEventListener("click", closeScenarioMenu);
 });
 
-// ---- 窗口控制(自定义标题栏;浏览器预览下不渲染) ----
-const appWindow = isTauri ? getCurrentWindow() : null;
 const logoSrc = computed(() => logoColor);
 
 // ---- 面板分隔条 ----
@@ -257,7 +278,7 @@ async function onImport() {
 
 <template>
   <div class="app">
-    <header class="titlebar" data-tauri-drag-region>
+    <header class="titlebar" data-tauri-drag-region @dblclick="onTitlebarDblClick">
       <!-- 左侧：品牌 Logo 与名称 -->
       <div class="brand-group" data-tauri-drag-region>
         <img class="brand-logo" :src="logoSrc" alt="XON" draggable="false" />
@@ -346,9 +367,32 @@ async function onImport() {
       </div>
 
       <div v-if="appWindow" class="win-controls">
-        <button class="win-btn" aria-label="最小化" @click="appWindow.minimize()"><Minus /></button>
-        <button class="win-btn" aria-label="最大化/还原" @click="appWindow.toggleMaximize()"><Square /></button>
-        <button class="win-btn win-close" aria-label="关闭窗口" @click="appWindow.close()"><X /></button>
+        <button class="win-btn" aria-label="最小化" title="最小化" @click="appWindow.minimize()">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+            <path d="M0 5H10" stroke="currentColor" stroke-width="1.2" />
+          </svg>
+        </button>
+        <button
+          class="win-btn"
+          :aria-label="isMaximized ? '还原' : '最大化'"
+          :title="isMaximized ? '还原' : '最大化'"
+          @click="toggleMaximize"
+        >
+          <!-- 还原: 两个交叠方框 -->
+          <svg v-if="isMaximized" width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+            <path d="M2.5 2V0.75H9.25V7.5H8" stroke="currentColor" stroke-width="1.1" />
+            <rect x="0.75" y="2.5" width="6.75" height="6.75" stroke="currentColor" stroke-width="1.1" />
+          </svg>
+          <!-- 最大化: 单个矩形方框 -->
+          <svg v-else width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+            <rect x="0.75" y="0.75" width="8.5" height="8.5" stroke="currentColor" stroke-width="1.1" />
+          </svg>
+        </button>
+        <button class="win-btn win-close" aria-label="关闭窗口" title="关闭" @click="appWindow.close()">
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+            <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -668,14 +712,17 @@ async function onImport() {
   box-shadow: 0 0 6px rgba(163, 190, 140, 0.6);
 }
 
-/* 窗口控制按钮:贴右缘、占满标题栏高度 */
+/* 窗口控制按钮:贴右缘、占满标题栏高度、精致极简风格 */
 .win-controls {
   display: flex;
   align-self: stretch;
   flex: none;
+  -webkit-app-region: no-drag;
 }
 .win-btn {
   width: 44px;
+  height: 100%;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -685,13 +732,23 @@ async function onImport() {
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
+.win-btn svg {
+  pointer-events: none;
+}
 .win-btn:hover {
-  background: var(--overlay-hover);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--color-foreground);
 }
+.win-btn:active {
+  background: rgba(255, 255, 255, 0.14);
+}
 .win-close:hover {
-  background: var(--color-destructive-soft-bg);
-  color: var(--color-destructive);
+  background: #e81123 !important;
+  color: #ffffff !important;
+}
+.win-close:active {
+  background: #c42b1c !important;
+  color: #ffffff !important;
 }
 
 .workspace {

@@ -138,8 +138,7 @@ const uptime = computed(() => {
 const bodyRef = ref(null);
 const manualPaused = ref(false);
 const scrolledUp = ref(false);
-const hovering = ref(false);
-const paused = computed(() => manualPaused.value || scrolledUp.value || hovering.value);
+const paused = computed(() => manualPaused.value || scrolledUp.value);
 
 function onScroll() {
   const el = bodyRef.value;
@@ -286,8 +285,6 @@ function onClear() {
         ref="bodyRef"
         class="log-viewer"
         @scroll="onScroll"
-        @mouseenter="hovering = true"
-        @mouseleave="hovering = false"
       >
         <div v-for="line in filteredLines" :key="line.id" v-memo="[line.id]" class="log-line">
           <span class="log-ts">{{ formatTime(line.ts) }}</span>
