@@ -1,6 +1,6 @@
 name: Release XON
 
-on:
+'on':
   push:
     tags:
       - 'v*'
@@ -9,7 +9,7 @@ on:
       tag:
         description: '发布版本标签 (例如 v0.1.0)'
         required: false
-        default: ''
+        default: 'v0.1.0'
 
 jobs:
   release:
@@ -20,6 +20,20 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+
+      - name: 确定发布版本号
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ("${{ github.ref_type }}" -ne "tag" -and "${{ inputs.tag }}" -ne "") {
+            $tag = "${{ inputs.tag }}"
+          }
+          if ($tag -eq "main" -or $tag -eq "") {
+            $tag = "v0.1.0"
+          }
+          Write-Output "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Releasing version: $tag"
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
@@ -44,8 +58,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v0.1.0' }}
-          releaseName: 'XON ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v0.1.0' }}'
+          tagName: ${{ steps.version.outputs.tag }}
+          releaseName: 'XON ${{ steps.version.outputs.tag }}'
           releaseDraft: false
           prerelease: false
 
@@ -53,8 +67,6 @@ jobs:
         shell: pwsh
         run: |
           Compress-Archive -Path "src-tauri/target/release/xon.exe" -DestinationPath "xon-portable-windows-x64.zip" -Force
-          $TAG="${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v0.1.0' }}"
-          gh release upload $TAG xon-portable-windows-x64.zip --clobber
+          gh release upload ${{ steps.version.outputs.tag }} xon-portable-windows-x64.zip --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
