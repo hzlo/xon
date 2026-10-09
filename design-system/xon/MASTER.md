@@ -1,348 +1,162 @@
-# Design System Master File
+# xon 设计系统 MASTER（唯一事实源）
 
-> **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.
-> If that file exists, its rules **override** this Master file.
-> If not, strictly follow the rules below.
-
----
+> 本文件是 xon 全局设计规则。做任何页面/组件前先读本文件；
+> 若 `design-system/xon/pages/<页面名>.md` 存在，其规则**覆盖**本文件的对应条目。
+> 配套 token 文件：`design-system/xon/tokens.css`（变量值的唯一出处，重构时整块替换 `src/styles/base.css` 的 `:root`）。
+> 旧版（slate + 绿色主题）已归档为 `MASTER-slate-legacy.md`，仅作历史参考，**不再生效**。
 
 **Project:** xon
-**Generated:** 2026-09-29 14:38:36
-**Category:** Developer Tool / IDE
-**Design Dials:** Density 8/10 (Dense / Dashboard)
+**Version:** 2（Nord × Liquid Glass 深色主题）
+**Generated:** 2026-09-30
+**Stack:** Tauri 2 (WebView2) + Vue 3，仅深色主题
 
----
+## 1. 定位与风格栈
 
-## Global Rules
+视觉方向一句话：**Nord 冷灰蓝 × Apple Liquid Glass × 瑞士极简骨架——简而雅，深而不黑**。
 
-### Color Palette
+| 层 | 风格 | 承担 |
+|---|---|---|
+| 骨架 | Minimalism & Swiss Style | 留白、字阶、网格、克制的装饰 |
+| 材质 | Liquid Glass（Apple iOS/macOS 语言） | 对话框、浮层、顶栏的霜面玻璃 |
+| 色彩 | Nord Palette（Polar Night + Frost） | 冷灰蓝四级表面、霜蓝强调、Aurora 语义色 |
 
-| Role | Hex | CSS Variable |
-|------|-----|--------------|
-| Primary | `#1E293B` | `--color-primary` |
-| On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#334155` | `--color-secondary` |
-| On Secondary | `#FFFFFF` | `--color-on-secondary` |
-| Accent/CTA | `#22C55E` | `--color-accent` |
-| On Accent/CTA | `#0F172A` | `--color-on-accent` |
-| Background | `#0F172A` | `--color-background` |
-| Foreground | `#F8FAFC` | `--color-foreground` |
-| Card | `#1B2336` | `--color-card` |
-| Card Foreground | `#F8FAFC` | `--color-card-foreground` |
-| Muted | `#272F42` | `--color-muted` |
-| Muted Foreground | `#94A3B8` | `--color-muted-foreground` |
-| Border | `#475569` | `--color-border` |
-| Destructive | `#EF4444` | `--color-destructive` |
-| On Destructive | `#000000` | `--color-on-destructive` |
-| Ring | `#FFFFFF` | `--color-ring` |
+核心决策（对比度已验证，勿推翻）：
+- **深而不黑**：底色 `#2E3440`（nord0），拒绝 `#000000`/`#121212` 纯黑。
+- **深色模式层级靠表面提亮，不靠阴影**：`nord0 → nord1 → nord2 → nord3` 即 底→卡片→凹槽→浮层。阴影只做辅助。
+- **强调色从绿色换成霜蓝** `#88C0D0` 族：与整体灰蓝同色相，是「雅」的关键。Aurora 五色只表达语义状态（成功/警告/错误），禁止当装饰。
+- 本应用**只有深色主题**，无 light/dark 切换。
 
-**Color Notes:** Code dark + run green
+## 2. 色彩 token
 
-### Typography
+全部变量见 `tokens.css`（含基元层 `--nord-*` 与语义层），此处列核心值与已测对比度（WCAG：正文 4.5:1，大字/图形 3:1）：
 
-- **Display / Code / Logs:** JetBrains Mono (headings, commands, log output, process IDs, metrics)
-- **UI Body:** IBM Plex Sans (labels, navigation, form fields, buttons, empty states)
-- **Mood:** code, developer, technical, precise, functional, terminal
-- **Google Fonts:** [JetBrains Mono + IBM Plex Sans](https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap)
+| 变量 | 值 | 用途 | 对比度 |
+|---|---|---|---|
+| `--color-background` | `#2E3440` | 应用底 | — |
+| `--color-card` | `#3B4252` | 卡片/面板 | — |
+| `--color-muted` | `#434C5E` | 凹槽/hover 面 | — |
+| `--color-border` | `#4C566A` | 控件实线描边 | — |
+| `--color-foreground` | `#ECEFF4` | 正文 | bg 10.8 / card 8.7 |
+| `--color-muted-foreground` | `rgba(216,222,233,.72)` | 次级文本 | bg 5.6 / card 4.7 ✓ |
+| `--color-primary` | `#81A1C1` | 主按钮填充 | 深字 4.6 ✓ |
+| `--color-on-primary` | `#2E3440` | 主按钮文字 | ↑ |
+| `--color-accent` | `#88C0D0` | 选中/链接/焦点 | bg 6.2 / card 5.0 |
+| `--color-success` | `#A3BE8C` | 成功 | bg 6.1 / card 4.9 ✓ |
+| `--color-warning` | `#EBCB8B` | 警告 | bg 8.0 / card 6.4 ✓ |
+| `--color-destructive` | `#DCAAAF` | 错误**文本** | bg 6.2 / card 5.0 ✓ |
+| `--color-destructive-icon` | `#C97A82` | 错误图标/边框 | bg 3.9 / card 3.2 ✓ |
+| `--input-border` | `rgba(236,239,244,.48)` | 输入框描边 | on card 3.35 ✓ |
 
-**CSS Import (web):**
-```css
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-```
+⚠️ nord10 `#5E81AC` 和 nord11 `#BF616A` 原色对正文不达标（3.1 / 3.05），**只允许**用于图标、边框、大号粗体文本；正文一律用提亮变体（见上表）。
 
-> **Tauri note:** XON is an offline-capable desktop app — do not rely on the Google Fonts CDN. Bundle both families locally (`@fontsource/ibm-plex-sans`, `@fontsource/jetbrains-mono` or self-hosted woff2) so the UI renders identically without network.
+## 3. 玻璃材质（Liquid Glass）
 
-**Type scale (dense):** 11px (micro labels, table headers) · 12px (log lines, secondary) · 13px (body, controls — default) · 14px (section titles) · 16px (page titles). Line-height 1.6 for log output, 1.45 elsewhere.
-
-**Font tokens:**
-```css
-:root {
-  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
-  --font-ui: 'IBM Plex Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
-}
-```
-
-### Spacing Variables
-
-*Density: 8/10 — Dense / Dashboard*
-
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--space-xs` | `2px` / `0.125rem` | Tight gaps |
-| `--space-sm` | `4px` / `0.25rem` | Icon gaps, inline spacing |
-| `--space-md` | `8px` / `0.5rem` | Standard padding |
-| `--space-lg` | `12px` / `0.75rem` | Section padding |
-| `--space-xl` | `16px` / `1rem` | Large gaps |
-| `--space-2xl` | `24px` / `1.5rem` | Section margins |
-| `--space-3xl` | `32px` / `2rem` | Hero padding |
-
-### Shadow Depths
-
-| Level | Value | Usage |
-|-------|-------|-------|
-| `--shadow-sm` | `0 1px 2px rgba(0,0,0,0.05)` | Subtle lift |
-| `--shadow-md` | `0 4px 6px rgba(0,0,0,0.1)` | Cards, buttons |
-| `--shadow-lg` | `0 10px 15px rgba(0,0,0,0.1)` | Modals, dropdowns |
-| `--shadow-xl` | `0 20px 25px rgba(0,0,0,0.15)` | Hero images, featured cards |
-
----
-
-## Component Specs
-
-All specs below are dark-theme native (Dark Mode OLED) and tuned to the density-8 scale. Surfaces are separated by **1px borders first** (shadows are nearly invisible on near-black backgrounds); elevation via shadow is reserved for overlays.
-
-### Radius & Motion Tokens
-
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--radius-sm` | `3px` | Badges, checkboxes |
-| `--radius-md` | `5px` | Buttons, inputs, rows |
-| `--radius-lg` | `8px` | Cards, panels, modals |
-| `--dur-fast` | `120ms` | Hover/press state changes |
-| `--dur-normal` | `200ms` | Panels, modals, disclosure |
-| `--ease` | `cubic-bezier(0.2, 0, 0, 1)` | All transitions |
-
-### Buttons
+**只允许用在：模态对话框、弹出菜单、应用顶栏。** 树视图、列表、日志主体禁用（WebView2 上 backdrop-filter 大面积使用会掉帧）。
 
 ```css
-/* Primary action (Start / run semantics) */
-.btn-primary {
-  background: var(--color-accent);          /* #22C55E */
-  color: var(--color-on-accent);            /* #0F172A — dark text on green, ≥4.5:1 */
-  padding: 5px 12px;                        /* dense: space-sm + space-lg */
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  font: 500 13px/1 var(--font-ui);
-  transition: background var(--dur-fast) var(--ease), opacity var(--dur-fast) var(--ease);
-  cursor: pointer;
-}
-.btn-primary:hover  { background: #16A34A; }   /* green-600, same hue family */
-.btn-primary:active { background: #15803D; }   /* green-700 — pressed darkens, no layout shift */
+/* 模态对话框 */
+background: var(--glass-dialog-bg);        /* rgba(59,66,82,.80) */
+backdrop-filter: var(--glass-blur);        /* saturate(150%) blur(32px) */
+border: 1px solid var(--glass-border);     /* 亮边勾轮廓 */
+box-shadow: var(--glass-highlight), var(--shadow-lg);
+border-radius: var(--radius-xl);           /* 16px */
 
-/* Destructive action (Stop / kill semantics) */
-.btn-danger {
-  background: var(--color-destructive);     /* #EF4444 */
-  color: #FFFFFF;
-  padding: 5px 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  font: 500 13px/1 var(--font-ui);
-  cursor: pointer;
-}
-.btn-danger:hover { background: #DC2626; }     /* red-600 */
-
-/* Secondary / quiet action */
-.btn-secondary {
-  background: var(--color-secondary);       /* #334155 */
-  color: var(--color-foreground);           /* #F8FAFC */
-  padding: 5px 12px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  font: 500 13px/1 var(--font-ui);
-  cursor: pointer;
-}
-.btn-secondary:hover { background: var(--color-muted); }
-
-/* Ghost / icon button (toolbar) */
-.btn-ghost {
-  background: transparent;
-  color: var(--color-muted-foreground);
-  padding: 5px 8px;
-  border-radius: var(--radius-md);
-  border: 1px solid transparent;
-  cursor: pointer;
-}
-.btn-ghost:hover { background: var(--color-muted); color: var(--color-foreground); }
-
-/* Disabled: reduced emphasis, no pointer, no action */
-.btn-primary:disabled, .btn-danger:disabled, .btn-secondary:disabled {
-  opacity: 0.45; cursor: not-allowed; pointer-events: none;
-}
+/* 顶栏/浮层面板：同上，但 bg 用 --glass-panel-bg (.55) */
 ```
 
-Buttons never transform on hover (no `translateY`/`scale`) — state changes are color-only so dense rows never jitter.
+- 深色玻璃 = **低透明度亮雾 + 1px 亮边框**，不要用浅色模式的 `rgba(255,255,255,0.2)` 配方（会发灰发闷）。
+- 降级已内置：`@supports not (backdrop-filter)` 与 `prefers-reduced-transparency: reduce` 时退回实色 `--color-card`，组件层无需处理。
+- 遮罩用 `--overlay-scrim`（复合后对话框上正文 9.3:1）。
 
-### Cards / Panels
+## 4. 排版与栅格
 
-```css
-.card {
-  background: var(--color-card);            /* #1B2336 */
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: 12px;                            /* dense, not 24px */
-}
-/* Static cards are NOT cursor:pointer and do not lift on hover —
-   only interactive rows (below) get hover feedback. */
+- UI 字体沿用 `--font-ui`（IBM Plex Sans）；日志/代码用 `--font-mono`（JetBrains Mono）。正文 14px、次级 12-13px、页标题 16-17px；权重 400/600 两档为主，**不用 800+ 黑体**。
+- 间距保持 4/8 节奏（`--space-xs…3xl` = 2/4/8/12/16/24/32）。
+- 圆角整体调大一级：控件 5/8px，卡片 12px，对话框 16px（`--radius-xl`）。
+
+## 5. 组件规范要点
+
+| 组件 | 规则 |
+|---|---|
+| 主按钮 | `--color-primary` 填充 + 深字；hover/active **提亮**（`--color-primary-hover/active`），深色模式不做「按下变暗」 |
+| 次级按钮 | `--color-muted` 填充 + `--color-foreground` 文字 + `1px --color-border` |
+| 危险操作 | **tinted 风格**：`--color-destructive` 文字 + `--color-destructive-soft-bg/border`；不做纯红实心填充 |
+| 输入框 | `--input-bg` 凹陷底 + `--input-border` 描边；聚焦换 2px `--color-ring` |
+| 树/列表行 | hover 叠 `--overlay-hover`；选中叠 `--overlay-selected`（霜蓝 16%）；行高 ≥ 32px；**不加玻璃、不加阴影** |
+| 对话框 | scrim + 玻璃配方见 §3；进出动画 `--dur-slow` + `--ease`，位移 ≤ 8px，禁弹跳 |
+| 日志面板 | `--font-mono`，底色 `--color-card`，时间戳/级别色取语义色文本变体 |
+| 图标 | 沿用 lucide-vue-next，同层统一线性风格与 stroke-width（默认 2，16px 栅格），禁止 emoji 当图标 |
+| 动效 | 颜色/透明度 `--dur-fast/normal`，位移/形变 `--dur-slow`；一律 `--ease`；`prefers-reduced-motion` 下关闭位移动画 |
+
+## 6. 反模式（Do / Don't）
+
+| ✅ Do | ❌ Don't |
+|---|---|
+| 表面用 nord 0→3 四级提亮 | 用阴影或透明度堆层级 |
+| Aurora 色表达状态 | Aurora 色做按钮/高亮/渐变装饰 |
+| 强调色霜蓝一族 | 绿色 `#22c55e` 等高饱和色（旧主题遗留） |
+| 玻璃只给浮层 | 树/列表/日志整片 backdrop-filter |
+| 文本色用提亮变体 | 直接用 `#5E81AC`/`#BF616A` 写小字 |
+| 次级文本用 `--color-muted-foreground` | 用 `#4C566A`/`#434C5E` 当文本色（1.7:1） |
+| `#ECEFF4` 正文 | `#FFFFFF` 纯白正文（刺眼、光晕） |
+| 按压提亮 | 按压变暗（深色模式违和） |
+| 一切颜色走 `--color-*` 变量 | 组件里硬编码 hex/rgba |
+
+## 7. 旧 → 新映射表（重构时机械替换）
+
+`src/styles/base.css` 现值 → 新值（变量名全部保留，新增变量见 tokens.css）：
+
+| 变量 | 旧值 | 新值 | 备注 |
+|---|---|---|---|
+| `--color-primary` | `#1e293b` | `#81A1C1` | 语义从「深色面」变为「主操作填充」 |
+| `--color-on-primary` | `#ffffff` | `#2E3440` | 白字改深字 |
+| `--color-secondary` | `#334155` | `#434C5E` | |
+| `--color-on-secondary` | `#ffffff` | `#ECEFF4` | |
+| `--color-background` | `#0f172a` | `#2E3440` | 底色从藏青提亮为灰蓝 |
+| `--color-foreground` | `#f8fafc` | `#ECEFF4` | |
+| `--color-card` | `#1b2336` | `#3B4252` | |
+| `--color-card-foreground` | `#f8fafc` | `#ECEFF4` | |
+| `--color-muted` | `#272f42` | `#434C5E` | |
+| `--color-muted-foreground` | `#94a3b8` | `rgba(216,222,233,.72)` | card 上 4.27→4.73 |
+| `--color-border` | `#475569` | `#4C566A` | |
+| `--color-destructive` | `#ef4444` | `#DCAAAF` | 填充语义→文本语义；危险按钮改 tinted |
+| `--color-on-destructive` | `#000000` | `#2E3440` | |
+| `--color-ring` | `#ffffff` | `#88C0D0` | |
+| `--color-accent` | `#22c55e` | `#88C0D0` | **绿改霜蓝，全项目扫绿色硬编码** |
+| `--color-accent-hover` | `#16a34a` | `#81A1C1` | |
+| `--color-accent-active` | `#15803d` | `#5E81AC` | 仅图标/边框/大字 |
+| `--color-accent-text` | `#4ade80` | `#88C0D0` | |
+| `--color-accent-soft-bg` | `rgba(34,197,94,.14)` | `rgba(136,192,208,.12)` | |
+| `--color-accent-soft-border` | `rgba(34,197,94,.35)` | `rgba(136,192,208,.35)` | |
+| `--color-accent-glow` | `rgba(34,197,94,.8)` | `rgba(136,192,208,.45)` | 仅焦点环/拖拽指示 |
+| `--color-accent-glow-soft` | `rgba(34,197,94,.35)` | `rgba(136,192,208,.22)` | |
+| `--overlay-scrim` | `rgba(2,6,23,.65)` | `rgba(36,41,51,.62)` | |
+| `--radius-sm/md/lg` | `3/5/8px` | `5/8/12px` | 新增 `--radius-xl: 16px` |
+| 字体/间距/时长 | 不变 | 不变 | 新增 `--dur-slow: 300ms` |
+
+另需全局替换组件内硬编码：绿色系 `#22c55e / #16a34a / #15803d / #4ade80 / rgba(34,197,94,*)`、藏青系 `#0f172a / #1b2336 / #272f42`、slate 系 `#334155 / #475569 / #94a3b8`。
+
+## 8. 验收清单（重构完成后逐项检查）
+
+- [ ] 全项目（含 `tree.css` 与组件 `<style>`）无硬编码颜色，均引用语义变量
+- [ ] 无纯黑 `#000`/`#121212` 背景、无纯白 `#FFF` 正文
+- [ ] 正文对比度 ≥4.5:1（已验证组合见 §2，新配色需补测）
+- [ ] 绿色高饱和色零残留（grep `22c55e|16a34a|15803d|4ade80` 为 0 命中）
+- [ ] 玻璃只出现在对话框/弹出菜单/顶栏；`prefers-reduced-transparency` 下为实色
+- [ ] 主按钮 hover/active 为提亮，非变暗
+- [ ] 树/列表行 hover、选中态使用 `--overlay-*`，无阴影无玻璃
+- [ ] 图标全部 lucide、同层同 stroke-width，无 emoji
+- [ ] 动效遵守 `--dur-*`/`--ease`，`prefers-reduced-motion` 下无位移动画
+- [ ] 窗口最小宽度下布局不破
+
+## 9. 层级检索用法
+
+后续会话做特定页面时：
+
+```
+读取 design-system/xon/MASTER.md。
+检查 design-system/xon/pages/<页面名>.md 是否存在，
+存在则其规则优先，否则仅用 MASTER 规则。
 ```
 
-### Inputs
-
-```css
-.input, .select {
-  background: var(--color-muted);           /* #272F42 — recessed vs card */
-  color: var(--color-foreground);
-  padding: 5px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  font: 400 13px/1.4 var(--font-ui);
-  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
-}
-.input::placeholder { color: var(--color-muted-foreground); }
-.input:focus, .select:focus {
-  border-color: var(--color-ring);          /* #FFFFFF — high-visibility on dark */
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18);
-}
-.input[aria-invalid="true"] { border-color: var(--color-destructive); }
-```
-
-### Modals / Overlays
-
-```css
-.modal-overlay {
-  background: rgba(2, 6, 23, 0.65);         /* slate-950 scrim, dark-native */
-  backdrop-filter: blur(4px);
-}
-.modal {
-  background: var(--color-card);            /* never white in a dark-only app */
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: 16px;
-  box-shadow: var(--shadow-xl);
-  max-width: 520px;
-}
-```
-
-### Status Badges (process state)
-
-```css
-.badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 1px 8px;
-  border-radius: var(--radius-sm);
-  font: 500 11px/1.6 var(--font-ui);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-.badge-running { background: rgba(34,197,94,0.14); color: #4ADE80; border: 1px solid rgba(34,197,94,0.35); }
-.badge-stopped { background: rgba(148,163,184,0.12); color: var(--color-muted-foreground); border: 1px solid rgba(148,163,184,0.3); }
-.badge-error   { background: rgba(239,68,68,0.14); color: #F87171; border: 1px solid rgba(239,68,68,0.35); }
-```
-
-Pair every badge with a colored dot (8px) so state never relies on text or color alone.
-
-### Process / Group Rows (left pane)
-
-```css
-.row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 8px;                         /* dense rows, 4px vertical */
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease);
-}
-.row:hover  { background: var(--color-muted); }
-.row[aria-selected="true"], .row.is-active { background: var(--color-secondary); }
-.row:focus-visible { outline: 1px solid var(--color-ring); outline-offset: -1px; }
-```
-
-### Log Viewer (right pane)
-
-```css
-.log-viewer {
-  background: var(--color-background);      /* darkest surface, terminal-first */
-  font: 400 12px/1.6 var(--font-mono);
-  padding: 8px 12px;
-  user-select: text;                        /* log text must be copyable */
-}
-.log-line:hover { background: var(--color-muted); }  /* row tracking while scanning */
-.log-ts      { color: var(--color-muted-foreground); }
-.log-info    { color: var(--color-foreground); }
-.log-warn    { color: #F59E0B; }            /* amber-500 */
-.log-error   { color: var(--color-destructive); }
-.log-debug   { color: var(--color-muted-foreground); }
-```
-
-**Auto-scroll behavior (required):** logs append/stream continuously. Auto-scroll must pause when the user scrolls up or hovers the pane, expose a visible pause/resume control (`aria-label="Pause auto-scroll"`), and respect `prefers-reduced-motion` (jump, never smooth-scroll). Render streamed output incrementally — never buffer behind a spinner.
-
-### Scrollbars (WebView2 / Chromium)
-
-```css
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--color-secondary); border-radius: 5px; border: 2px solid var(--color-background); }
-::-webkit-scrollbar-thumb:hover { background: var(--color-border); }
-::-webkit-scrollbar-track { background: transparent; }
-```
-
----
-
-## Style Guidelines
-
-**Style:** Dark Mode (OLED)
-
-**Keywords:** Dark theme, low light, high contrast, deep black, midnight blue, eye-friendly, OLED, night mode, power efficient
-
-**Best For:** Night-mode apps, coding platforms, entertainment, eye-strain prevention, OLED devices, low-light
-
-**Key Effects:** Minimal glow (text-shadow: 0 0 10px), dark-to-light transitions, low white emission, high readability, visible focus
-
-### Layout Pattern
-
-**Pattern Name:** Real-Time Monitor + Terminal *(verified match: Developer Tool / IDE → Dashboard Style)*
-
-XON is a desktop control surface, not a marketing page — no hero/landing sections apply.
-
-- **Shell:** fixed app chrome (titlebar + toolbar) over a two-pane workspace.
-- **Left pane (monitor):** project groups → process rows. Groups are collapsible sections; rows show name, command, status badge, and inline start/stop actions. Selecting a row focuses the log pane.
-- **Right pane (terminal):** real-time log viewer for the selected process — monospace, streaming, auto-scroll with pause (see Log Viewer spec). Tab bar or header shows process name + status + uptime.
-- **Information density:** 4px row padding, 11–13px type, side-by-side panes; panels resizable by dragging the splitter; every pane reachable and resizable via keyboard.
-- **State surfaces:** empty state per pane ("No process selected", "No output yet") using muted tokens; never a blank black void.
-- **Key effects:** minimal glow (text-shadow: 0 0 10px) reserved for the running-status dot; low white emission; high readability; visible focus everywhere.
-
----
-
-## Anti-Patterns (Do NOT Use)
-
-- ❌ Light mode default
-- ❌ Slow performance
-
-### Additional Forbidden Patterns
-
-- ❌ **Emojis as icons** — Use SVG icons (Heroicons, Lucide, Simple Icons)
-- ❌ **Missing cursor:pointer** — All *clickable* elements must have cursor:pointer (static cards/panes must NOT look clickable)
-- ❌ **Layout-shifting hovers** — Avoid scale/translate transforms that shift layout; state changes are color-only
-- ❌ **Low contrast text** — Maintain 4.5:1 minimum contrast ratio on dark surfaces
-- ❌ **Instant state changes** — Always use transitions (120–200ms)
-- ❌ **Invisible focus states** — Focus states must be visible for a11y
-- ❌ **Light-theme leftovers** — No white modals, light borders (`#E2E8F0`), or dark-text-on-dark buttons; dark mode is the only mode
-- ❌ **Auto-scroll without control** — Streaming logs must pause on user scroll-up/hover and expose a pause control
-- ❌ **Spinner-buffered logs** — Stream output incrementally; never block rendering behind a loading state
-
----
-
-## Vue 3 Implementation Notes (stack-verified)
-
-> From `--stack vue` search (vue 3.5.x, verified 2026-08-13). XON targets Vue 3 + Tauri 2.
-
-- **`v-for` always keyed** (`:key="item.id"`, never index) — required for stable process rows and log lines (Severity: High).
-- **`v-memo` on log rows** (`v-for ... v-memo="[line.id]"`) — keeps re-renders off the 10k-line log buffer (Severity: Medium).
-- **`shallowReactive` for flat state** — process/log entries are append-heavy flat records; avoid deep-reactivity overhead (Severity: Low).
-- **`defineAsyncComponent`** for heavy dialogs (settings, command editor) (Severity: Medium).
-- **Log buffering:** batch incoming Tauri events (e.g., flush to the reactive array on `requestAnimationFrame` or a 50–100ms timer) instead of one reactive push per line.
-
----
-
-## Pre-Delivery Checklist
-
-Before delivering any UI code, verify:
-
-- [ ] No emojis used as icons (use SVG instead)
-- [ ] All icons from consistent icon set (Lucide via `lucide-vue-next`, single stroke weight)
-- [ ] `cursor-pointer` on all clickable elements; static surfaces don't look clickable
-- [ ] Hover/pressed states are color-only transitions (120–200ms)
-- [ ] Dark mode: text contrast ≥4.5:1, non-text UI ≥3:1 (badges, borders, status dots)
-- [ ] Focus states visible for keyboard navigation (focus-visible ring on rows, inputs, buttons)
-- [ ] `prefers-reduced-motion` respected (log auto-scroll jumps instead of smooth-scrolling)
-- [ ] Desktop window checks: usable at 1280×720 minimum, panes resize via splitter and keyboard, no horizontal overflow at any panel ratio
-- [ ] Log text selectable/copyable; auto-scroll pauses on scroll-up/hover with a visible control
-- [ ] Status never conveyed by color alone (badge text + dot + icon where applicable)
+页面级例外（如某页需要更高密度）写入 `pages/<页面名>.md`，不改本文件。

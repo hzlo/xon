@@ -25,10 +25,12 @@ import { toasts } from "../stores/app.js";
   pointer-events: none;
 }
 .toast {
-  background: var(--color-card);
-  border: 1px solid var(--color-border);
+  background: var(--glass-panel-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--glass-highlight), var(--shadow-lg);
   color: var(--color-foreground);
   font-size: 0.9231rem;
   line-height: 1.5;

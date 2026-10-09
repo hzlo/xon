@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="768" viewBox="0 0 256 192" fill="none" color="#FFFFFF">
+
+  <defs>
+    <linearGradient id="dGradient" x1="118" y1="32" x2="190" y2="158" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00D4A6"/>
+      <stop offset="0.42" stop-color="#00C6FF"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="slashDown" x1="42" y1="38" x2="136" y2="154" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00C6FF"/>
+      <stop offset="0.42" stop-color="#2563EB"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="slashUp" x1="42" y1="154" x2="140" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="0.48" stop-color="#6026FF"/>
+      <stop offset="1" stop-color="#00C6FF"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+<g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M124 40H158C195 40 216 61 216 96S195 152 158 152H132" stroke="url(#dGradient)" stroke-width="32"/>
+    <path d="M42 42L132 150" stroke="url(#slashDown)" stroke-width="32"/>
+    <path d="M42 150L136 40" stroke="url(#slashUp)" stroke-width="32"/>
+  </g>
+</svg>

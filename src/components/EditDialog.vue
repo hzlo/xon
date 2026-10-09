@@ -18,6 +18,7 @@ const form = reactive({
   name: props.initial.name ?? "",
   dir: props.initial.dir ?? "",
   cmd: props.initial.cmd ?? "",
+  shell: props.initial.shell ?? "cmd",
   cwd: props.initial.cwd ?? "",
   envText: Object.entries(props.initial.env ?? {})
     .map(([k, v]) => `${k}=${v}`)
@@ -62,6 +63,7 @@ function submit() {
     name: form.name.trim(),
     dir: form.dir.trim(),
     cmd: form.cmd.trim(),
+    shell: form.shell || "cmd",
     cwd: form.cwd.trim(),
     env,
   });
@@ -110,6 +112,13 @@ function submit() {
               placeholder="npm run dev"
             />
             <span v-if="errors.cmd" class="field-error">{{ errors.cmd }}</span>
+          </div>
+          <div class="field">
+            <label for="command-shell">Shell</label>
+            <select id="command-shell" v-model="form.shell" class="input">
+              <option value="cmd">Cmd (cmd.exe)</option>
+              <option value="powershell">PowerShell (powershell.exe)</option>
+            </select>
           </div>
           <div class="field">
             <label for="command-cwd">工作目录</label>

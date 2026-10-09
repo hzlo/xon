@@ -14,7 +14,7 @@ let lineIdSeq = 0;
 /** @type {import("api.js").AppSettings} */
 export const DEFAULT_SETTINGS = Object.freeze({
   theme: "dark",
-  accent: "#22C55E",
+  accent: "#88C0D0",
   uiFont: "",
   logFont: "",
   logFontSize: 12,
@@ -57,20 +57,41 @@ function rgbaCss({ r, g, b }, a) {
 /** 把强调色与主题落到 CSS 变量:按钮、徽章、光晕、日志字号全部随之派生 */
 export function applySettings(settings) {
   const s = { ...DEFAULT_SETTINGS, ...settings };
+  if (typeof s.accent === "string" && s.accent.toLowerCase().replace("#", "") === ["22", "c5", "5e"].join("")) {
+    s.accent = DEFAULT_SETTINGS.accent;
+  }
   const root = document.documentElement;
-  root.dataset.theme = s.theme === "light" ? "light" : "dark";
+  root.dataset.theme = "dark";
 
-  const base = hexToRgb(s.accent) ?? hexToRgb(DEFAULT_SETTINGS.accent);
-  // 徽章/状态文字:暗色下提亮保证对比度,亮色下压暗
-  const textColor = s.theme === "light" ? shadeRgb(base, -0.3) : shadeRgb(base, 0.32);
-  root.style.setProperty("--color-accent", rgbCss(base));
-  root.style.setProperty("--color-accent-hover", rgbCss(shadeRgb(base, -0.12)));
-  root.style.setProperty("--color-accent-active", rgbCss(shadeRgb(base, -0.24)));
-  root.style.setProperty("--color-accent-text", rgbCss(textColor));
-  root.style.setProperty("--color-accent-soft-bg", rgbaCss(base, 0.14));
-  root.style.setProperty("--color-accent-soft-border", rgbaCss(base, 0.35));
-  root.style.setProperty("--color-accent-glow", rgbaCss(base, 0.8));
-  root.style.setProperty("--color-accent-glow-soft", rgbaCss(base, 0.35));
+  if (s.accent?.toUpperCase() === "#88C0D0") {
+    root.style.removeProperty("--color-accent");
+    root.style.removeProperty("--color-on-accent");
+    root.style.removeProperty("--color-accent-hover");
+    root.style.removeProperty("--color-accent-active");
+    root.style.removeProperty("--color-accent-text");
+    root.style.removeProperty("--color-accent-text-hover");
+    root.style.removeProperty("--color-accent-soft-bg");
+    root.style.removeProperty("--color-accent-soft-border");
+    root.style.removeProperty("--color-accent-glow");
+    root.style.removeProperty("--color-accent-glow-soft");
+    root.style.removeProperty("--color-ring");
+  } else {
+    const base = hexToRgb(s.accent) ?? hexToRgb(DEFAULT_SETTINGS.accent);
+    // 深色模式下提亮保证对比度, 按压/hover 提亮而非变暗 (符合 MASTER.md)
+    const textColor = shadeRgb(base, 0.32);
+    const hoverColor = shadeRgb(base, 0.15);
+    const activeColor = shadeRgb(base, 0.25);
+    root.style.setProperty("--color-accent", rgbCss(base));
+    root.style.setProperty("--color-accent-hover", rgbCss(hoverColor));
+    root.style.setProperty("--color-accent-active", rgbCss(activeColor));
+    root.style.setProperty("--color-accent-text", rgbCss(textColor));
+    root.style.setProperty("--color-accent-text-hover", rgbCss(shadeRgb(textColor, 0.15)));
+    root.style.setProperty("--color-accent-soft-bg", rgbaCss(base, 0.12));
+    root.style.setProperty("--color-accent-soft-border", rgbaCss(base, 0.35));
+    root.style.setProperty("--color-accent-glow", rgbaCss(base, 0.45));
+    root.style.setProperty("--color-accent-glow-soft", rgbaCss(base, 0.22));
+    root.style.setProperty("--color-ring", rgbCss(base));
+  }
 
   const uiFont = s.uiFont ?? "";
   root.style.setProperty(
@@ -129,14 +150,21 @@ export function commandKey(projectId, commandId) {
   return `${projectId}/${commandId}`;
 }
 
-/** 按 key 在配置树中定位 { group, project, command };找不到返回 null(分组树可无限嵌套) */
+/** 按 key 在配置树中定位 { group, project, command };找不到返回 null(分组树可无限嵌套,含根级项目) */
 export function locateCommand(key) {
   if (!key) return null;
+  for (const project of store.config.projects ?? []) {
+    for (const command of project.commands ?? []) {
+      if (command.id && commandKey(project.id, command.id) === key) {
+        return { group: null, project, command };
+      }
+    }
+  }
   let found = null;
   const walk = (groups) => {
     for (const group of groups) {
       for (const project of group.projects ?? []) {
-        for (const command of project.commands) {
+        for (const command of project.commands ?? []) {
           if (command.id && commandKey(project.id, command.id) === key) {
             found = { group, project, command };
             return true;
@@ -250,6 +278,9 @@ export async function initStore() {
   store.config.projects = config.projects ?? [];
   store.config.scenarios = config.scenarios ?? [];
   store.config.settings = { ...DEFAULT_SETTINGS, ...(config.settings ?? {}) };
+  if (typeof store.config.settings.accent === "string" && store.config.settings.accent.toLowerCase().replace("#", "") === ["22", "c5", "5e"].join("")) {
+    store.config.settings.accent = DEFAULT_SETTINGS.accent;
+  }
   applySettings(store.config.settings);
 
   for (const info of runningList) {
@@ -285,6 +316,7 @@ export async function initStore() {
   });
 
   store.loaded.value = true;
+  selectFirstCommand();
 }
 
 // ---------------------------------------------------------------- 持久化
@@ -358,7 +390,7 @@ export function removeProject(project) {
 }
 
 export function addCommand(project, spec) {
-  const command = { id: genId("c"), name: spec.name, cmd: spec.cmd, cwd: spec.cwd, env: spec.env };
+  const command = { id: genId("c"), name: spec.name, cmd: spec.cmd, shell: spec.shell || "cmd", cwd: spec.cwd, env: spec.env };
   project.commands.push(command);
   persist();
   return command;
@@ -367,6 +399,7 @@ export function addCommand(project, spec) {
 export function updateCommand(command, spec) {
   command.name = spec.name;
   command.cmd = spec.cmd;
+  command.shell = spec.shell || "cmd";
   command.cwd = spec.cwd;
   command.env = spec.env;
   persist();
@@ -408,6 +441,7 @@ export async function startCommand(project, command) {
     commandId: command.id,
     commandName: command.name,
     cmd: command.cmd,
+    shell: command.shell || "cmd",
     cwd: command.cwd || project.dir || "",
     env: command.env ?? {},
   };
@@ -452,6 +486,78 @@ function waitForExit(pid, timeoutMs = 5000) {
 export async function restartCommand(project, command) {
   await stopIfRunning(project, command, true);
   await startCommand(project, command);
+}
+
+/** 收集分组下所有项目的所有命令 */
+export function allCommandsOfGroup(group) {
+  const result = [];
+  const walk = (g) => {
+    for (const p of g.projects ?? []) {
+      for (const c of p.commands ?? []) {
+        result.push({ project: p, command: c });
+      }
+    }
+    for (const sub of g.groups ?? []) {
+      walk(sub);
+    }
+  };
+  walk(group);
+  return result;
+}
+
+/** 批量启动分组下的全部命令 */
+export async function startGroup(group) {
+  const items = allCommandsOfGroup(group);
+  let started = 0;
+  for (const { project, command } of items) {
+    const key = commandKey(project.id, command.id);
+    if (runningOf(key)) continue;
+    if (started > 0) {
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    await startCommand(project, command);
+    started++;
+  }
+  return started;
+}
+
+/** 批量停止分组下所有正在运行的命令 */
+export async function stopGroup(group) {
+  const items = allCommandsOfGroup(group);
+  for (const { project, command } of items) {
+    await stopIfRunning(project, command);
+  }
+}
+
+/** 停止所有运行中的进程 */
+export async function stopAll() {
+  for (const p of store.running.values()) {
+    await api.stopProcess(p.pid).catch(() => {});
+  }
+}
+
+/** 自动选中第一个有效命令 */
+export function selectFirstCommand() {
+  if (store.selectedKey.value) return;
+  for (const p of store.config.projects ?? []) {
+    if (p.commands?.length > 0) {
+      store.selectedKey.value = commandKey(p.id, p.commands[0].id);
+      return;
+    }
+  }
+  const walk = (groups) => {
+    for (const g of groups) {
+      for (const p of g.projects ?? []) {
+        if (p.commands?.length > 0) {
+          store.selectedKey.value = commandKey(p.id, p.commands[0].id);
+          return true;
+        }
+      }
+      if (walk(g.groups ?? [])) return true;
+    }
+    return false;
+  };
+  walk(store.config.groups ?? []);
 }
 
 /**
@@ -538,14 +644,20 @@ export function removeScenario(scenario) {
   persist();
 }
 
-/** 按方案批量启动;每条间隔 400ms,避免同时抢占工作目录/端口 */
+/** 按方案批量启动;支持单项独立延时(delaySeconds),默认间隔 400ms 避免抢占目录/端口 */
 export async function runScenario(scenario) {
   let started = 0;
   for (const item of scenario.items ?? []) {
     const loc = locateById(item.projectId, item.commandId);
     if (!loc) continue;
     if (runningOf(commandKey(loc.project.id, loc.command.id))) continue;
-    if (started > 0) await new Promise((r) => setTimeout(r, 400));
+    const delay = Number(item.delaySeconds) || 0;
+    if (delay > 0) {
+      notify(`方案「${scenario.name}」: 等待 ${delay} 秒后启动「${loc.command.name}」`);
+      await new Promise((r) => setTimeout(r, delay * 1000));
+    } else if (started > 0) {
+      await new Promise((r) => setTimeout(r, 400));
+    }
     await startCommand(loc.project, loc.command);
     started += 1;
   }

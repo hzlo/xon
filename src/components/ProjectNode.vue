@@ -3,20 +3,21 @@
 import { computed, inject } from "vue";
 import {
   ArrowUpToLine,
-  Package,
+  ChevronDown,
   FolderOpen,
+  Package,
   Pencil,
   Play,
   Plus,
   RotateCw,
   Square,
   SquareTerminal,
-  Terminal,
   Trash2,
 } from "lucide-vue-next";
 import {
   commandKey,
   confirmAction,
+  formatDuration,
   moveNode,
   notify,
   removeCommand,
@@ -28,7 +29,6 @@ import {
   store,
 } from "../stores/app.js";
 import { openDirInExplorer, openTerminal } from "../api.js";
-import StatusBadge from "./StatusBadge.vue";
 
 defineOptions({ name: "ProjectNode" });
 
@@ -67,7 +67,20 @@ function isSelected(command) {
 }
 
 function select(command) {
-  store.selectedKey.value = keyOf(props.project.id, command.id);
+  store.selectedKey.value = keyOf(command);
+}
+
+function portOf(cmd) {
+  if (!cmd) return "";
+  const m = cmd.match(/(?:--port[=\s]|:|-p\s+|PORT=|port=)(\d{2,5})/i);
+  if (m) return `:${m[1]}`;
+  return "";
+}
+
+function uptimeOf(command) {
+  const p = runningOf(keyOf(command));
+  if (p) return formatDuration(store.now.value - p.startedAtMs);
+  return "";
 }
 
 async function onDelete() {
@@ -110,6 +123,7 @@ function onDragStart(e) {
       @dragstart="onDragStart"
       @click="toggle"
     >
+      <ChevronDown class="chevron" :class="{ collapsed: project.collapsed }" />
       <Package class="row-icon" />
       <span class="project-name">{{ project.name }}</span>
       <span class="count">{{ project.commands.length }}</span>
@@ -117,9 +131,9 @@ function onDragStart(e) {
         <button v-if="!isAtRoot" class="btn-ghost icon-btn" :aria-label="`把项目 ${project.name} 移到根级`" title="移到根级" @click.stop="onMoveToRoot"><ArrowUpToLine /></button>
         <button class="btn-ghost icon-btn" aria-label="打开目录" title="打开目录" @click.stop="openIn(openDirInExplorer)"><FolderOpen /></button>
         <button class="btn-ghost icon-btn" aria-label="打开终端" title="打开终端" @click.stop="openIn(openTerminal)"><SquareTerminal /></button>
-        <button class="btn-ghost icon-btn" :aria-label="`在 ${project.name} 中新建命令`" @click.stop="handlers.create({ kind: 'command', mode: 'create', project })"><Plus /></button>
-        <button class="btn-ghost icon-btn" :aria-label="`编辑项目 ${project.name}`" @click.stop="handlers.edit({ kind: 'project', mode: 'edit', project })"><Pencil /></button>
-        <button class="btn-ghost icon-btn is-danger" :aria-label="`删除项目 ${project.name}`" @click.stop="onDelete"><Trash2 /></button>
+        <button class="btn-ghost icon-btn" :aria-label="`在 ${project.name} 中新建命令`" title="新建命令" @click.stop="handlers.create({ kind: 'command', mode: 'create', project })"><Plus /></button>
+        <button class="btn-ghost icon-btn" :aria-label="`编辑项目 ${project.name}`" title="编辑" @click.stop="handlers.edit({ kind: 'project', mode: 'edit', project })"><Pencil /></button>
+        <button class="btn-ghost icon-btn is-danger" :aria-label="`删除项目 ${project.name}`" title="删除" @click.stop="onDelete"><Trash2 /></button>
       </span>
     </div>
 
@@ -136,41 +150,55 @@ function onDragStart(e) {
         @keydown.enter.prevent="select(command)"
         @keydown.space.prevent="select(command)"
       >
-      <Terminal class="row-icon" />
-      <span class="cmd-name">{{ command.name }}</span>
-      <span class="cmd-snippet" :title="command.cmd">{{ command.cmd }}</span>
-      <StatusBadge :state="statusOf(command).state" :label="statusOf(command).label" />
-      <span class="row-actions primary-actions">
-        <button
-          v-if="!runningOf(keyOf(command))"
-          class="btn-ghost icon-btn is-accent"
-          :aria-label="`启动 ${command.name}`"
-          @click.stop="startCommand(project, command)"
-        >
-          <Play />
-        </button>
-        <template v-else>
+        <!-- 微小状态指示灯 -->
+        <span class="status-dot" :class="statusOf(command).state" :title="statusOf(command).label">
+          <span class="dot-inner"></span>
+        </span>
+
+        <span class="cmd-name" :title="command.cmd">{{ command.name }}</span>
+        
+        <!-- 端口号微徽章或命令行片段 -->
+        <span v-if="portOf(command.cmd)" class="cmd-port-badge" :title="command.cmd">{{ portOf(command.cmd) }}</span>
+        <span v-else class="cmd-snippet" :title="command.cmd">{{ command.cmd }}</span>
+
+        <!-- 运行时间/异常退出码 -->
+        <span v-if="statusOf(command).state === 'running'" class="cmd-uptime">{{ uptimeOf(command) }}</span>
+        <span v-else-if="statusOf(command).state === 'error'" class="cmd-exit-code">{{ statusOf(command).label }}</span>
+
+        <span class="row-actions primary-actions">
           <button
-            class="btn-ghost icon-btn is-danger"
-            :aria-label="`停止 ${command.name}`"
-            @click.stop="stopPid(runningOf(keyOf(command)).pid)"
+            v-if="!runningOf(keyOf(command))"
+            class="btn-ghost icon-btn is-accent"
+            :aria-label="`启动 ${command.name}`"
+            title="启动"
+            @click.stop="startCommand(project, command)"
           >
-            <Square />
+            <Play />
           </button>
-          <button
-            class="btn-ghost icon-btn"
-            :aria-label="`重启 ${command.name}`"
-            @click.stop="restartCommand(project, command)"
-          >
-            <RotateCw />
-          </button>
-        </template>
-      </span>
-      <span class="row-actions manage-actions">
-        <button class="btn-ghost icon-btn" :aria-label="`编辑命令 ${command.name}`" @click.stop="handlers.edit({ kind: 'command', mode: 'edit', project, command })"><Pencil /></button>
-        <button class="btn-ghost icon-btn is-danger" :aria-label="`删除命令 ${command.name}`" @click.stop="onDeleteCommand(command)"><Trash2 /></button>
-      </span>
-    </div>
+          <template v-else>
+            <button
+              class="btn-ghost icon-btn is-danger"
+              :aria-label="`停止 ${command.name}`"
+              title="停止"
+              @click.stop="stopPid(runningOf(keyOf(command)).pid)"
+            >
+              <Square />
+            </button>
+            <button
+              class="btn-ghost icon-btn"
+              :aria-label="`重启 ${command.name}`"
+              title="重启"
+              @click.stop="restartCommand(project, command)"
+            >
+              <RotateCw />
+            </button>
+          </template>
+        </span>
+        <span class="row-actions manage-actions">
+          <button class="btn-ghost icon-btn" :aria-label="`编辑命令 ${command.name}`" title="编辑" @click.stop="handlers.edit({ kind: 'command', mode: 'edit', project, command })"><Pencil /></button>
+          <button class="btn-ghost icon-btn is-danger" :aria-label="`删除命令 ${command.name}`" title="删除" @click.stop="onDeleteCommand(command)"><Trash2 /></button>
+        </span>
+      </div>
 
       <p v-if="project.commands.length === 0" class="inline-empty">此项目还没有命令 — 悬停项目行,点 + 新建</p>
     </div>

@@ -3,20 +3,47 @@
 // 界面与日志字号、关闭行为。
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { listFonts } from "../api.js";
+import { checkUpdate } from "../updater.js";
+import { RefreshCw } from "lucide-vue-next";
+import FontPicker from "./FontPicker.vue";
 
 const props = defineProps({
   /** @type {import("api.js").AppSettings} */
   initial: { type: Object, required: true },
 });
-const emit = defineEmits(["submit", "cancel"]);
+const emit = defineEmits(["submit", "cancel", "show-update"]);
+
+// 检查更新状态
+const checkingUpdate = ref(false);
+const updateStatus = ref("");
+
+async function onCheckUpdate() {
+  checkingUpdate.value = true;
+  updateStatus.value = "";
+  try {
+    const update = await checkUpdate();
+    if (update) {
+      updateStatus.value = `发现新版本 v${update.version}`;
+      emit("show-update", update);
+    } else {
+      updateStatus.value = "当前已是最新版本";
+    }
+  } catch (err) {
+    updateStatus.value = err?.message?.includes("network")
+      ? "检查更新失败: 网络连接异常"
+      : "检查更新失败，请稍后重试";
+  } finally {
+    checkingUpdate.value = false;
+  }
+}
 
 // 系统字体列表:首次打开时枚举一次,模块级缓存
 let fontCache = null;
 const systemFonts = ref([]);
 
 const form = reactive({
-  theme: props.initial.theme ?? "dark",
-  accent: props.initial.accent ?? "#22C55E",
+  theme: "dark",
+  accent: props.initial.accent ?? "#88C0D0",
   uiFont: props.initial.uiFont ?? "",
   logFont: props.initial.logFont ?? "",
   logFontSize: props.initial.logFontSize ?? 12,
@@ -42,7 +69,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
 
 function submit() {
   emit("submit", {
-    theme: form.theme,
+    theme: "dark",
     accent: form.accent,
     uiFont: form.uiFont.trim(),
     logFont: form.logFont.trim(),
@@ -54,7 +81,7 @@ function submit() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('cancel')">
+  <div class="modal-overlay">
     <div class="modal" role="dialog" aria-modal="true" aria-label="设置">
       <h2 class="modal-title">设置</h2>
 
@@ -62,9 +89,8 @@ function submit() {
         <div class="field-row">
           <div class="field">
             <label for="set-theme">主题</label>
-            <select id="set-theme" v-model="form.theme" class="select">
-              <option value="dark">深色(默认)</option>
-              <option value="light">浅色</option>
+            <select id="set-theme" v-model="form.theme" class="select" disabled>
+              <option value="dark">深色 (Nord)</option>
             </select>
           </div>
           <div class="field">
@@ -84,37 +110,23 @@ function submit() {
 
         <div class="field">
           <label for="set-ui-font">界面字体(输入过滤,含全部系统已安装字体;留空用默认)</label>
-          <input
+          <FontPicker
             id="set-ui-font"
             v-model="form.uiFont"
-            class="input"
-            type="text"
-            list="ui-font-options"
+            :fonts="systemFonts"
             placeholder="默认(IBM Plex Sans)"
-            autocomplete="off"
-            spellcheck="false"
           />
-          <datalist id="ui-font-options">
-            <option v-for="f in systemFonts" :key="`ui-${f}`" :value="f" />
-          </datalist>
         </div>
 
         <div class="field-row">
           <div class="field">
             <label for="set-log-font">日志字体(留空用默认)</label>
-            <input
+            <FontPicker
               id="set-log-font"
               v-model="form.logFont"
-              class="input"
-              type="text"
-              list="log-font-options"
+              :fonts="systemFonts"
               placeholder="默认(JetBrains Mono)"
-              autocomplete="off"
-              spellcheck="false"
             />
-            <datalist id="log-font-options">
-              <option v-for="f in systemFonts" :key="`log-${f}`" :value="f" />
-            </datalist>
           </div>
           <div class="field field-narrow">
             <label for="set-log-size">日志字号(px)</label>
@@ -150,6 +162,28 @@ function submit() {
             <option value="minimize">最小化到托盘(推荐)</option>
             <option value="exit">完全退出(停止所有进程)</option>
           </select>
+        </div>
+
+        <!-- 软件版本与在线更新 -->
+        <div class="field update-field">
+          <label>关于与更新</label>
+          <div class="update-card">
+            <div class="update-meta">
+              <span class="app-tag">XON 0.1.0</span>
+              <span v-if="updateStatus" class="update-msg" :class="{ 'has-new': updateStatus.includes('新版本') }">
+                {{ updateStatus }}
+              </span>
+            </div>
+            <button
+              type="button"
+              class="btn-secondary btn-sm update-btn"
+              :disabled="checkingUpdate"
+              @click="onCheckUpdate"
+            >
+              <RefreshCw :size="12" :class="{ 'spin-icon': checkingUpdate }" />
+              <span>{{ checkingUpdate ? '正在检查...' : '检查更新' }}</span>
+            </button>
+          </div>
         </div>
 
         <div class="modal-actions">
@@ -192,8 +226,50 @@ function submit() {
   padding: 2px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: var(--color-muted);
+  background: var(--input-bg);
   cursor: pointer;
+}
+.update-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-muted);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.update-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+.app-tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-foreground);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+.update-msg {
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+}
+.update-msg.has-new {
+  color: #a3be8c;
+  font-weight: 600;
+}
+.update-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.spin-icon {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 .modal-actions {
   display: flex;

@@ -4,6 +4,7 @@
 // 注意:直接用 node 运行 @tauri-apps/cli 的 JS 入口,而不是 spawn npm.cmd ——
 // 新版 Node 出于安全考虑禁止 spawnSync 直接调 .cmd(静默 EINVAL),不要改回去。
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import process from "node:process";
@@ -12,10 +13,13 @@ const RUSTUP_HOME = "D:\\repo\\rust";
 const CARGO_HOME = "D:\\repo\\packages\\cargo";
 const CARGO_BIN = `${CARGO_HOME}\\bin`;
 
-process.env.RUSTUP_HOME ??= RUSTUP_HOME;
-process.env.CARGO_HOME ??= CARGO_HOME;
-if (!process.env.PATH.includes(CARGO_BIN)) {
-  process.env.PATH = `${CARGO_BIN};${process.env.PATH}`;
+// 仅在本地非标准路径存在且非 CI 环境时注入环境变量
+if (!process.env.CI && existsSync(RUSTUP_HOME)) {
+  process.env.RUSTUP_HOME ??= RUSTUP_HOME;
+  process.env.CARGO_HOME ??= CARGO_HOME;
+  if (!process.env.PATH.includes(CARGO_BIN)) {
+    process.env.PATH = `${CARGO_BIN};${process.env.PATH}`;
+  }
 }
 
 const require = createRequire(import.meta.url);

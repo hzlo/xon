@@ -1,14 +1,14 @@
-/* 左侧树共享样式:图标区分类型,缩进只按层级(每层一个统一的 .tree-children 容器) */
+/* 左侧树共享样式: 图标区分类型, 缩进只按层级 (每层一个统一的 .tree-children 容器) */
 
 .tree-children {
-  margin-left: 13px;
-  border-left: 1px solid var(--color-muted);
-  padding-left: 5px;
+  margin-left: 12px;
+  border-left: 1px solid var(--color-divider);
+  padding-left: 4px;
 }
 
 .row-icon {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   flex: none;
   color: var(--color-muted-foreground);
 }
@@ -27,7 +27,7 @@
 
 .group-name {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 0.96rem;
   cursor: pointer;
   min-width: 0;
   overflow: hidden;
@@ -35,10 +35,11 @@
   white-space: nowrap;
 }
 
-.group-toggle {
-  flex: none;
-}
 .chevron {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  color: var(--color-muted-foreground);
   transition: transform var(--dur-normal) var(--ease);
 }
 .chevron.collapsed {
@@ -46,9 +47,10 @@
 }
 
 .count {
-  font-size: 0.8462rem;
+  font-size: 0.8rem;
   color: var(--color-muted-foreground);
   font-family: var(--font-mono);
+  opacity: 0.7;
 }
 
 .project-name {
@@ -62,22 +64,92 @@
   cursor: pointer;
 }
 
-.cmd-name {
-  font-size: 1rem;
+.cmd-row {
+  position: relative;
+}
+
+/* 微小状态指示灯: 告别嘈杂的大灰色胶囊 */
+.status-dot {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
-  max-width: 45%;
+}
+.status-dot .dot-inner {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-border);
+  transition: all var(--dur-fast) var(--ease);
+}
+.status-dot.running .dot-inner {
+  width: 6px;
+  height: 6px;
+  background: var(--color-success, #A3BE8C);
+  box-shadow: 0 0 6px rgba(163, 190, 140, 0.6);
+  animation: pulse-dot 2.5s infinite ease-in-out;
+}
+.status-dot.error .dot-inner {
+  width: 6px;
+  height: 6px;
+  background: var(--color-destructive, #BF616A);
+}
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.8; }
+}
+
+.cmd-name {
+  font-size: 0.9231rem;
+  font-weight: 500;
+  flex: none;
+  max-width: 48%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.cmd-port-badge {
+  font-family: var(--font-mono);
+  font-size: 0.77rem;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft-bg);
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent-soft-border);
+  flex: none;
+}
+
 .cmd-snippet {
   flex: 1;
   min-width: 0;
-  font: 400 0.8462rem/1.4 var(--font-mono);
+  font: 400 0.8rem/1.4 var(--font-mono);
   color: var(--color-muted-foreground);
+  opacity: 0.6;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.cmd-uptime {
+  font-family: var(--font-mono);
+  font-size: 0.77rem;
+  color: var(--color-success, #A3BE8C);
+  margin-left: auto;
+  margin-right: 2px;
+  flex: none;
+  opacity: 0.85;
+}
+
+.cmd-exit-code {
+  font-family: var(--font-mono);
+  font-size: 0.77rem;
+  color: var(--color-destructive);
+  margin-left: auto;
+  margin-right: 2px;
+  flex: none;
 }
 
 .row-actions {
@@ -86,6 +158,18 @@
   gap: 0;
   flex: none;
 }
+
+.group-quick-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.row:hover .group-quick-actions {
+  opacity: 1;
+}
+
 .manage-actions {
   visibility: hidden;
 }
@@ -97,16 +181,16 @@
 .inline-empty {
   margin: var(--space-xs) 0 var(--space-md) var(--space-lg);
   padding: var(--space-sm) var(--space-md);
-  font-size: 0.9231rem;
+  font-size: 0.85rem;
   color: var(--color-muted-foreground);
   opacity: 0.75;
-  border: 1px dashed var(--color-muted);
+  border: 1px dashed var(--color-border);
   border-radius: var(--radius-md);
 }
 
 /* 拖拽投放目标高亮 */
 .drop-target {
-  background: var(--color-accent-soft-bg) !important;
+  background: var(--overlay-selected) !important;
   outline: 1px dashed var(--color-accent-soft-border);
   outline-offset: -1px;
 }

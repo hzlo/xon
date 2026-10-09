@@ -15,12 +15,12 @@ export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in
 /** @typedef {{version: number, groups: Group[], projects: Project[], scenarios: Scenario[], settings: AppSettings}} AppConfig */
 /** @typedef {{id: string, name: string, collapsed?: boolean, groups?: Group[], projects: Project[]}} Group */
 /** @typedef {{id: string, name: string, dir: string, commands: CommandSpec[]}} Project */
-/** @typedef {{id: string, name: string, cmd: string, cwd?: string, env?: Record<string, string>}} CommandSpec */
+/** @typedef {{id: string, name: string, cmd: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>}} CommandSpec */
 /** @typedef {{id: string, name: string, items: ScenarioItem[]}} Scenario */
-/** @typedef {{projectId: string, commandId: string}} ScenarioItem */
+/** @typedef {{projectId: string, commandId: string, delaySeconds?: number}} ScenarioItem */
 /** @typedef {{theme: 'dark'|'light', accent: string, uiFont: string, logFont: string, logFontSize: number, uiFontSize: number, closeAction: 'minimize'|'exit'}} AppSettings */
 /** @typedef {{pid: number, projectId: string, commandId: string, commandName: string, startedAtMs: number}} RunningInfo */
-/** @typedef {{pid: number, projectId: string, commandId: string, commandName: string, cmd: string, cwd: string, env: Record<string, string>}} StartRequest */
+/** @typedef {{pid: number, projectId: string, commandId: string, commandName: string, cmd: string, shell?: string, cwd: string, env: Record<string, string>}} StartRequest */
 /** @typedef {{pid: number, startedAtMs: number}} StartInfo */
 /** @typedef {{pid: number, stream: 'out'|'err', ts: number, lines: string[]}} LogChunk */
 /** @typedef {{pid: number, code: number|null, durationMs: number}} ProcExit */
@@ -58,6 +58,16 @@ export function startProcess(req) {
  */
 export function stopProcess(pid) {
   return impl.stopProcess(pid);
+}
+
+/**
+ * 向运行中的进程写入一行标准输入并冲刷。
+ * @param {number} pid
+ * @param {string} text
+ * @returns {Promise<void>}
+ */
+export function sendInput(pid, text) {
+  return impl.sendInput(pid, text);
 }
 
 /** 停掉当前所有运行中的进程树。 @returns {Promise<void>} */
@@ -155,6 +165,7 @@ const tauriImpl = {
   saveConfig: (config) => invoke("save_config", { config }),
   startProcess: (req) => invoke("start_process", { req }),
   stopProcess: (pid) => invoke("stop_process", { pid }),
+  sendInput: (pid, text) => invoke("send_input", { pid, text }),
   stopAllProcesses: () => invoke("stop_all_processes"),
   listRunning: () => invoke("list_running"),
   exportConfig: (path, config) => invoke("export_config", { path, config }),
@@ -244,7 +255,7 @@ function createMockImpl() {
     ],
     settings: {
       theme: "dark",
-      accent: "#22C55E",
+      accent: "#88C0D0",
       uiFont: "",
       logFont: "",
       logFontSize: 12,
@@ -304,6 +315,9 @@ function createMockImpl() {
       running.delete(pid);
       emitExit({ pid, code: 1, durationMs: Date.now() - entry.startedAtMs });
       return true;
+    },
+    async sendInput(pid, text) {
+      console.log(`[mock] sendInput to pid ${pid}:`, text);
     },
     async stopAllProcesses() {
       for (const pid of [...running.keys()]) await this.stopProcess(pid);

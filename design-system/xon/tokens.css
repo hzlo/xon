@@ -1,0 +1,143 @@
+/* ============================================================
+   xon 设计 token —— Nord 冷灰蓝 × Liquid Glass 深色主题
+   来源: design-system/xon/MASTER.md (唯一事实源)
+   规则: 所有组件样式只允许引用 --color-* / --space-* /
+   --radius-* / --glass-* / --overlay-* / --shadow-* 语义变量,
+   禁止硬编码 hex。基元变量 --nord-* 仅在 :root 本文件内使用。
+   ============================================================ */
+
+:root {
+  /* ---------- 基元色: Nord Palette ---------- */
+  /* Polar Night 深灰蓝四级, 由暗到亮 = 由底到面 */
+  --nord-0: #2E3440;
+  --nord-1: #3B4252;
+  --nord-2: #434C5E;
+  --nord-3: #4C566A;
+  /* Snow Storm 文本三级 */
+  --nord-4: #D8DEE9;
+  --nord-5: #E5E9F0;
+  --nord-6: #ECEFF4;
+  /* Frost 霜蓝: 强调色族 */
+  --nord-7: #8FBCBB;
+  --nord-8: #88C0D0;
+  --nord-9: #81A1C1;
+  --nord-10: #5E81AC;
+  /* Aurora: 仅限语义状态, 不可当装饰色 */
+  --nord-11: #BF616A;  /* 红 */
+  --nord-12: #D08770;  /* 橙 */
+  --nord-13: #EBCB8B;  /* 黄 */
+  --nord-14: #A3BE8C;  /* 绿 */
+  --nord-15: #B48EAD;  /* 紫 */
+
+  /* ---------- 表面 (深色模式的层级 = 表面逐级提亮, 不靠阴影) ---------- */
+  --color-background: var(--nord-0);            /* 应用底色  #2E3440 */
+  --color-card: var(--nord-1);                  /* 卡片/面板 #3B4252 */
+  --color-muted: var(--nord-2);                 /* 凹槽/hover 面 #434C5E */
+  --color-elevated: var(--nord-3);              /* 浮层内再提一级 #4C566A */
+
+  /* ---------- 文本 ---------- */
+  --color-foreground: var(--nord-6);            /* 正文 #ECEFF4  bg 10.8:1 / card 8.7:1 */
+  --color-muted-foreground: rgba(216, 222, 233, 0.72);
+  /* ↑ 次级文本, 等效 #A8AEBA: bg 5.6:1, card 4.7:1 (AA ✓) */
+  --color-disabled-foreground: rgba(216, 222, 233, 0.40); /* 无障碍豁免 */
+
+  /* ---------- 交互色 ---------- */
+  /* 主按钮: nord9 填充 + 深字 (深字 4.6:1 AA ✓) */
+  --color-primary: var(--nord-9);
+  --color-on-primary: var(--nord-0);
+  --color-primary-hover: var(--nord-8);         /* 深色模式按压/悬停 = 提亮 */
+  --color-primary-active: #86A5C3;              /* 4.9:1, 按下态仍 AA ✓ */
+  /* 次级按钮: nord2 填充 + 亮字 (7.5:1) */
+  --color-secondary: var(--nord-2);
+  --color-on-secondary: var(--nord-6);
+  /* 强调色族: 霜蓝, 链接/选中/焦点 */
+  --color-accent: var(--nord-8);                /* bg 6.2:1, card 5.0:1 */
+  --color-on-accent: var(--nord-0);
+  --color-accent-hover: var(--nord-9);
+  --color-accent-active: var(--nord-10);        /* 仅限图标/边框/大字, 3.1:1 */
+  --color-accent-text: var(--nord-8);           /* 链接文本 */
+  --color-accent-text-hover: #A5D3E0;           /* 链接悬停提亮, bg 7.7:1 */
+  --color-accent-soft-bg: rgba(136, 192, 208, 0.12);
+  --color-accent-soft-border: rgba(136, 192, 208, 0.35);
+  --color-accent-glow: rgba(136, 192, 208, 0.45);        /* 仅焦点环/拖拽指示 */
+  --color-accent-glow-soft: rgba(136, 192, 208, 0.22);
+  --color-ring: var(--nord-8);                  /* 焦点环: on card 5.0:1 */
+
+  /* ---------- 语义状态 (Aurora, 只做语义, 不做装饰) ---------- */
+  --color-success: var(--nord-14);              /* bg 6.1:1, card 4.9:1 */
+  --color-warning: var(--nord-13);              /* bg 8.0:1, card 6.4:1 */
+  --color-destructive: #DCAAAF;                 /* 错误文本: bg 6.2:1, card 5.0:1 */
+  --color-destructive-icon: #C97A82;            /* 错误图标/边框: bg 3.9:1, card 3.2:1 */
+  --color-on-destructive: var(--nord-0);
+  --color-destructive-soft-bg: rgba(191, 97, 106, 0.14);
+  --color-destructive-soft-border: rgba(191, 97, 106, 0.35);
+
+  /* ---------- 分隔与描边 ---------- */
+  --color-border: var(--nord-3);                /* 控件实线描边 #4C566A */
+  --color-divider: rgba(236, 239, 244, 0.20);   /* 结构分界线 (清晰利落的 1px 刻线) */
+  --input-bg: rgba(36, 41, 51, 0.55);           /* 输入框凹陷底 */
+  --input-border: rgba(236, 239, 244, 0.48);    /* on card 3.35:1 (1.4.11 ✓) */
+
+  /* ---------- 玻璃材质 (Liquid Glass) ----------
+     仅用于: 对话框 / 弹出菜单 / 顶栏。树视图与列表主体禁用 (性能)。 */
+  --glass-panel-bg: rgba(59, 66, 82, 0.55);     /* 顶栏/浮层面板 */
+  --glass-dialog-bg: rgba(59, 66, 82, 0.80);    /* 模态对话框 (复合底上正文 9.3:1) */
+  --glass-border: rgba(236, 239, 244, 0.20);    /* 亮边勾轮廓 (清晰分界) */
+  --glass-highlight: inset 0 1px 0 rgba(236, 239, 244, 0.06);
+  --glass-blur: saturate(150%) blur(32px);
+  --overlay-scrim: rgba(36, 41, 51, 0.62);      /* 模态遮罩 */
+
+  /* ---------- 行级状态 (树/列表, 叠加在表面之上) ---------- */
+  --overlay-hover: rgba(236, 239, 244, 0.05);
+  --overlay-selected: rgba(136, 192, 208, 0.16);/* 选中行: 其上正文 7.9:1 */
+  --scrollbar-thumb: var(--nord-3);
+  --scrollbar-thumb-hover: #5A6376;
+
+  /* ---------- 阴影 (深色模式: 阴影辅助, 层级主要靠表面提亮) ---------- */
+  --shadow-sm: 0 1px 3px rgba(20, 24, 32, 0.35);
+  --shadow-md: 0 4px 16px rgba(20, 24, 32, 0.40);
+  --shadow-lg: 0 16px 48px rgba(20, 24, 32, 0.50);
+
+  /* ---------- 排版 ---------- */
+  --font-ui: "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --log-font-size: 0.9231rem;
+
+  /* ---------- 间距 (4/8 节奏, 桌面工具中密度) ---------- */
+  --space-xs: 2px;
+  --space-sm: 4px;
+  --space-md: 8px;
+  --space-lg: 12px;
+  --space-xl: 16px;
+  --space-2xl: 24px;
+  --space-3xl: 32px;
+
+  /* ---------- 圆角 (苹果味: 整体调大一级) ---------- */
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;    /* 对话框/玻璃面板 */
+
+  /* ---------- 动效 ---------- */
+  --dur-fast: 120ms;    /* 按压/hover */
+  --dur-normal: 200ms;  /* 颜色/透明度过渡 */
+  --dur-slow: 300ms;    /* 面板 morph/位移 */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* ---------- 玻璃降级 ---------- */
+@supports not (backdrop-filter: blur(1px)) {
+  :root {
+    --glass-panel-bg: var(--color-card);
+    --glass-dialog-bg: var(--color-card);
+  }
+}
+
+/* 用户系统开启"减弱透明度"时彻底退回实色 */
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-panel-bg: var(--color-card);
+    --glass-dialog-bg: var(--color-card);
+    --glass-blur: none;
+  }
+}

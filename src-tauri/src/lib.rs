@@ -15,7 +15,7 @@ use std::{
     os::windows::process::CommandExt,
     path::{Path, PathBuf},
     process::Command as StdCommand,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -27,9 +27,9 @@ use tauri::{
     AppHandle, Emitter, Manager, State,
 };
 use tokio::{
-    io::{AsyncRead, AsyncReadExt},
-    process::Command,
-    sync::mpsc,
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    process::{ChildStdin, Command},
+    sync::{mpsc, Mutex as AsyncMutex},
     time::timeout,
 };
 
@@ -76,7 +76,7 @@ fn default_theme() -> String {
 }
 
 fn default_accent() -> String {
-    "#22C55E".into()
+    "#88C0D0".into()
 }
 
 fn default_log_size() -> u32 {
@@ -143,6 +143,8 @@ pub struct Scenario {
 pub struct ScenarioItem {
     pub project_id: String,
     pub command_id: String,
+    #[serde(default)]
+    pub delay_seconds: u32,
 }
 
 impl Default for AppConfig {
@@ -185,12 +187,18 @@ pub struct Project {
     pub commands: Vec<CommandSpec>,
 }
 
+fn default_shell() -> String {
+    "cmd".into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandSpec {
     pub id: String,
     pub name: String,
     pub cmd: String,
+    #[serde(default = "default_shell")]
+    pub shell: String,
     #[serde(default)]
     pub cwd: String,
     #[serde(default)]
@@ -205,6 +213,8 @@ pub struct StartRequest {
     pub command_id: String,
     pub command_name: String,
     pub cmd: String,
+    #[serde(default = "default_shell")]
+    pub shell: String,
     #[serde(default)]
     pub cwd: String,
     #[serde(default)]
@@ -247,6 +257,119 @@ struct ProcExit {
     duration_ms: u64,
 }
 
+// ---------------------------------------------------------------- Windows Job Object
+
+#[cfg(windows)]
+pub struct JobObject {
+    handle: windows::Win32::Foundation::HANDLE,
+}
+
+#[cfg(windows)]
+unsafe impl Send for JobObject {}
+#[cfg(windows)]
+unsafe impl Sync for JobObject {}
+
+#[cfg(windows)]
+impl JobObject {
+    /// 创建绑定了 KILL_ON_JOB_CLOSE 的 Job Object
+    /// 当 JobObject 句柄关闭(或主进程崩溃/强退)时, Windows 内核自动强杀该 Job 内全部后代进程
+    pub fn create_with_kill_on_close() -> Result<Self, String> {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::JobObjects::{
+            CreateJobObjectW, JobObjectExtendedLimitInformation, SetInformationJobObject,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        };
+
+        unsafe {
+            let handle = CreateJobObjectW(None, None)
+                .map_err(|e| format!("创建 Job Object 失败: {e}"))?;
+
+            let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+            if let Err(e) = SetInformationJobObject(
+                handle,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ) {
+                let _ = CloseHandle(handle);
+                return Err(format!("配置 Job Object 失败: {e}"));
+            }
+
+            Ok(Self { handle })
+        }
+    }
+
+    /// 将目标进程加入当前 Job Object
+    /// 后续该进程繁衍的所有子孙进程均自动归入此 Job 管理, 内核维护成员表
+    pub fn assign_process(&self, pid: u32) -> Result<(), String> {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::JobObjects::AssignProcessToJobObject;
+        use windows::Win32::System::Threading::{
+            OpenProcess, PROCESS_QUERY_INFORMATION, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+        };
+
+        unsafe {
+            let proc_handle = OpenProcess(
+                PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION,
+                false,
+                pid,
+            )
+            .map_err(|e| format!("打开进程句柄(PID {pid})失败: {e}"))?;
+
+            let res = AssignProcessToJobObject(self.handle, proc_handle);
+            let _ = CloseHandle(proc_handle);
+
+            res.map_err(|e| format!("将进程 {pid} 挂入 Job Object 失败: {e}"))
+        }
+    }
+
+    /// 借助内核级调用原子终止 Job 内所有活跃进程
+    pub fn terminate(&self, exit_code: u32) -> Result<(), String> {
+        use windows::Win32::System::JobObjects::TerminateJobObject;
+
+        unsafe {
+            TerminateJobObject(self.handle, exit_code)
+                .map_err(|e| format!("终止 Job Object 失败: {e}"))
+        }
+    }
+
+    /// 查询 Job 内当前活跃的进程总数
+    pub fn active_processes(&self) -> u32 {
+        use windows::Win32::System::JobObjects::{
+            JobObjectBasicAccountingInformation, QueryInformationJobObject,
+            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+        };
+
+        unsafe {
+            let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+            let res = QueryInformationJobObject(
+                Some(self.handle),
+                JobObjectBasicAccountingInformation,
+                &mut info as *mut _ as *mut std::ffi::c_void,
+                std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                None,
+            );
+            if res.is_ok() {
+                info.ActiveProcesses
+            } else {
+                0
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for JobObject {
+    fn drop(&mut self) {
+        use windows::Win32::Foundation::CloseHandle;
+        unsafe {
+            let _ = CloseHandle(self.handle);
+        }
+    }
+}
+
 // ---------------------------------------------------------------- 进程注册表
 
 struct RunningProc {
@@ -254,6 +377,8 @@ struct RunningProc {
     command_id: String,
     command_name: String,
     started_at_ms: u64,
+    stdin: Arc<AsyncMutex<Option<ChildStdin>>>,
+    job: Arc<JobObject>,
 }
 
 #[derive(Default)]
@@ -327,7 +452,8 @@ enum DecodeMode {
     Gbk(Decoder),
 }
 
-/// 行式解码器:字节块 → 完整行。探测期持有原始字节(上限 4KB),判定后全程单编码。
+/// 行式解码器:字节块 → 完整行。探测期 ASCII 前缀即时放行,自首个非 ASCII 字节起
+/// 持有原始字节(上限 4KB),判定后全程单编码。
 struct LineDecoder {
     mode: DecodeMode,
     carry: String,
@@ -341,22 +467,43 @@ impl LineDecoder {
     }
 
     fn feed(&mut self, chunk: &[u8], eof: bool, out: &mut Vec<String>) {
-        if let DecodeMode::Probe(pending) = &mut self.mode {
-            pending.extend_from_slice(chunk);
-            let verdict = probe_encoding(pending);
-            if verdict == EncodeVerdict::Undecided && !eof {
-                return;
-            }
-            let bytes = std::mem::take(pending);
-            self.mode = if verdict == EncodeVerdict::Gbk {
-                DecodeMode::Gbk(GBK.new_decoder())
-            } else {
-                DecodeMode::Utf8(UTF_8.new_decoder())
-            };
-            self.decode_chunk(&bytes, eof, out);
+        if !matches!(self.mode, DecodeMode::Probe(_)) {
+            self.decode_chunk(chunk, eof, out);
             return;
         }
-        self.decode_chunk(chunk, eof, out);
+        // 探测期:纯 ASCII 前缀在 GBK 与 UTF-8 下解码结果完全一致,立即放行,
+        // 只从第一个非 ASCII 字节起进入探测缓冲 —— 低频输出(ping、卡在启动早期的
+        // Java 进程)不会因攒不满 4KB 探测窗口而在面板上长时间一行都看不到。
+        let mut pending =
+            match std::mem::replace(&mut self.mode, DecodeMode::Utf8(UTF_8.new_decoder())) {
+                DecodeMode::Probe(p) => p,
+                _ => unreachable!("上方已确认处于探测态"),
+            };
+        if !pending.is_empty() {
+            pending.extend_from_slice(chunk);
+        } else {
+            let ascii_end = chunk.iter().position(|&b| b >= 0x80).unwrap_or(chunk.len());
+            let (prefix, rest) = chunk.split_at(ascii_end);
+            if !prefix.is_empty() {
+                self.decode_chunk(prefix, false, out);
+            }
+            if !rest.is_empty() {
+                pending.extend_from_slice(rest);
+            }
+        }
+        let verdict = probe_encoding(&pending);
+        if verdict == EncodeVerdict::Undecided && !eof {
+            self.mode = DecodeMode::Probe(pending);
+            return;
+        }
+        // 判定成立或流已结束:按结论收口,之后全程单编码
+        let bytes = std::mem::take(&mut pending);
+        self.mode = if verdict == EncodeVerdict::Gbk {
+            DecodeMode::Gbk(GBK.new_decoder())
+        } else {
+            DecodeMode::Utf8(UTF_8.new_decoder())
+        };
+        self.decode_chunk(&bytes, eof, out);
     }
 
     fn decode_chunk(&mut self, chunk: &[u8], last: bool, out: &mut Vec<String>) {
@@ -369,7 +516,7 @@ impl LineDecoder {
         self.scratch.reserve(chunk.len() * 3 + 16);
         let mut src = chunk;
         loop {
-            let (result, read, _, _) = dec.decode_to_str(src, &mut self.scratch, last);
+            let (result, read, _) = dec.decode_to_string(src, &mut self.scratch, last);
             src = &src[read..];
             match result {
                 CoderResult::InputEmpty => break,
@@ -547,22 +694,8 @@ fn open_terminal(dir: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 用 VSCode 打开目录(需 `code` 在 PATH 中)
-#[tauri::command]
-fn open_vscode(dir: String) -> Result<(), String> {
-    if dir.is_empty() || !Path::new(&dir).is_dir() {
-        return Err(format!("目录不存在:{dir}"));
-    }
-    StdCommand::new("cmd")
-        .args(["/C", "code", &dir])
-        .creation_flags(CREATE_NO_WINDOW)
-        .spawn()
-        .map_err(|_| "打开 VSCode 失败:未安装或 code 不在 PATH 中".to_string())?;
-    Ok(())
-}
-
 /// 枚举系统已安装字体(GDI EnumFontFamiliesExW,DEFAULT_CHARSET 去重排序)。
-/// 字体选择框的数据源:Windows 装了什么,这里就能列出什么。
+/// 字体选择框的数据源:Windows 装了什么,这里就能列出什么(跳过 @ 开头的竖排变体)。
 #[tauri::command]
 fn list_fonts() -> Vec<String> {
     #[cfg(windows)]
@@ -575,24 +708,29 @@ fn list_fonts() -> Vec<String> {
         };
 
         unsafe extern "system" fn font_enum_proc(
-            _lf: *const LOGFONTW,
-            tm: *const TEXTMETRICW,
+            lf: *const LOGFONTW,
+            _tm: *const TEXTMETRICW,
             _font_type: u32,
             l_param: LPARAM,
         ) -> i32 {
             unsafe {
-                if tm.is_null() {
+                if lf.is_null() {
                     return 1;
                 }
-                // EnumFontFamiliesEx 的第二个参数实际指向 ENUMLOGFONTEXW(含完整字体族名)
-                let elf = &*(tm as *const ENUMLOGFONTEXW);
-                let name: String = elf
-                    .elfFullName
-                    .iter()
-                    .take_while(|&&c| c != 0)
-                    .map(|&c| char::from_u32(c as u32).unwrap_or('\u{FFFD}'))
-                    .collect();
-                if !name.trim().is_empty() {
+                // 回调第一个参数才指向 ENUMLOGFONTEXW;第二个是 TEXTMETRIC/NEWTEXTMETRIC,
+                // 读它的 elfFullName 是越界访问(表现为字体名乱码)。
+                // 取字体族名 lfFaceName(CSS font-family 需要的正是族名,而非全名)。
+                let elf = &*(lf as *const ENUMLOGFONTEXW);
+                let name: String = String::from_utf16_lossy(
+                    elf.elfLogFont
+                        .lfFaceName
+                        .iter()
+                        .take_while(|&&c| c != 0)
+                        .copied()
+                        .collect::<Vec<u16>>()
+                        .as_slice(),
+                );
+                if !name.trim().is_empty() && !name.starts_with('@') {
                     let set = &mut *(l_param.0 as *mut BTreeSet<String>);
                     set.insert(name);
                 }
@@ -685,32 +823,125 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+/// 读取 Windows 系统最新的用户与系统环境变量快照 (调用 userenv.dll CreateEnvironmentBlock)
+/// 外部修改了 PATH 等环境变量时, 无需重启软件即可在下次启动命令时即时生效
+#[cfg(windows)]
+fn get_refreshed_environment() -> HashMap<String, String> {
+    use windows::core::BOOL;
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::TOKEN_QUERY;
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    #[link(name = "userenv")]
+    extern "system" {
+        fn CreateEnvironmentBlock(
+            lpenvironment: *mut *mut u16,
+            htoken: HANDLE,
+            binherit: BOOL,
+        ) -> BOOL;
+        fn DestroyEnvironmentBlock(lpenvironment: *mut u16) -> BOOL;
+    }
+
+    let mut map = HashMap::new();
+    unsafe {
+        let mut token = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_err() {
+            return map;
+        }
+
+        let mut env_ptr: *mut u16 = std::ptr::null_mut();
+        if CreateEnvironmentBlock(&mut env_ptr, token, true.into()).as_bool() && !env_ptr.is_null() {
+            let mut curr = env_ptr;
+            while *curr != 0 {
+                let mut len = 0;
+                while *curr.add(len) != 0 {
+                    len += 1;
+                }
+                let slice = std::slice::from_raw_parts(curr, len);
+                if let Ok(entry) = String::from_utf16(slice) {
+                    if let Some(pos) = entry.find('=') {
+                        if pos > 0 {
+                            let key = entry[..pos].to_string();
+                            let val = entry[pos + 1..].to_string();
+                            map.insert(key, val);
+                        }
+                    }
+                }
+                curr = curr.add(len + 1);
+            }
+            let _ = DestroyEnvironmentBlock(env_ptr);
+        }
+        let _ = CloseHandle(token);
+    }
+    map
+}
+
 #[tauri::command]
 async fn start_process(
     app: AppHandle,
     registry: State<'_, ProcessRegistry>,
     req: StartRequest,
 ) -> Result<StartInfo, String> {
-    let mut command = Command::new("cmd");
+    // 0. Shell 分支: 支持 Cmd 与 PowerShell (带 Bypass 策略)
+    let mut command = if req.shell.eq_ignore_ascii_case("powershell") {
+        let mut c = Command::new("powershell");
+        c.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
+            .raw_arg(&req.cmd);
+        c
+    } else {
+        let mut c = Command::new("cmd");
+        c.args(["/C"]).raw_arg(&req.cmd);
+        c
+    };
+
     command
-        .args(["/C"])
-        .raw_arg(&req.cmd)
         .creation_flags(CREATE_NO_WINDOW)
-        .stdin(std::process::Stdio::null())
+        .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+
+    // 1. 工作目录有效性强校验
     if !req.cwd.is_empty() {
-        command.current_dir(&req.cwd);
+        let cwd_path = Path::new(&req.cwd);
+        if !cwd_path.is_dir() {
+            return Err(format!("工作目录不存在或不是有效文件夹: {}", req.cwd));
+        }
+        command.current_dir(cwd_path);
     }
+
+    // 2. 动态读取并注入 Windows 最新环境变量快照 (PATH 修改即时生效)
+    #[cfg(windows)]
+    {
+        let refreshed = get_refreshed_environment();
+        if !refreshed.is_empty() {
+            command.env_clear();
+            for (k, v) in refreshed {
+                command.env(k, v);
+            }
+        }
+    }
+
+    // 3. 自定义环境变量覆盖
     for (k, v) in &req.env {
         command.env(k, v);
     }
+
+    let job = JobObject::create_with_kill_on_close()
+        .map_err(|e| format!("初始化 Job Object 失败: {e}"))?;
 
     let mut child = command
         .spawn()
         .map_err(|e| format!("启动失败: {e}"))?;
     let pid = child.id().ok_or("启动失败:未获得进程 ID")?;
     let started_at_ms = now_ms();
+
+    // 立即挂入 Job Object: 从诞生微秒起纳入内核监管, 子孙进程自动归入
+    job.assign_process(pid)
+        .map_err(|e| format!("进程监管挂载失败: {e}"))?;
+    let job_holder = Arc::new(job);
+
+    let stdin = child.stdin.take();
+    let stdin_holder = Arc::new(AsyncMutex::new(stdin));
 
     registry.0.lock().unwrap().insert(
         pid,
@@ -719,6 +950,8 @@ async fn start_process(
             command_id: req.command_id,
             command_name: req.command_name,
             started_at_ms,
+            stdin: stdin_holder,
+            job: job_holder.clone(),
         },
     );
 
@@ -731,10 +964,13 @@ async fn start_process(
 
     tokio::spawn(batch_writer(app.clone(), pid, rx));
 
-    // 监视任务:等待退出 → 广播退出码与时长 → 移出注册表
+    // 监视任务:等待退出 → 终止 Job 残留(清理孤儿进程) → 广播退出码与时长 → 移出注册表
     let app2 = app.clone();
+    let job_for_monitor = job_holder.clone();
     tokio::spawn(async move {
         let code = child.wait().await.ok().and_then(|s| s.code());
+        // 根进程退出后静默终止 Job 残留成员, 杜绝深层孙子进程逃逸成为僵尸
+        let _ = job_for_monitor.terminate(1);
         let duration_ms = now_ms().saturating_sub(started_at_ms);
         let _ = app2.emit("proc:exit", ProcExit { pid, code, duration_ms });
         app2.state::<ProcessRegistry>().0.lock().unwrap().remove(&pid);
@@ -745,21 +981,81 @@ async fn start_process(
 
 #[tauri::command]
 async fn stop_process(registry: State<'_, ProcessRegistry>, pid: u32) -> Result<bool, String> {
-    let exists = registry.0.lock().unwrap().contains_key(&pid);
-    if !exists {
+    let job = {
+        let guard = registry.0.lock().unwrap();
+        guard.get(&pid).map(|p| p.job.clone())
+    };
+    let Some(job) = job else {
         return Ok(false);
+    };
+
+    // 1. 内核级 TerminateJobObject: 原子终止整棵作业进程树(含所有深层后代进程)
+    job.terminate(1)?;
+
+    // 2. 排空等待(Drain): 轮询 ActiveProcesses 直到归零(上限 3s)
+    // 保证 node.exe/webpack 等完全死透并释放网络端口/文件锁, 彻底杜绝重启时的 EADDRINUSE
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
+        if job.active_processes() == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    kill_tree(pid).await?;
+
     Ok(true)
 }
 
 #[tauri::command]
 async fn stop_all_processes(registry: State<'_, ProcessRegistry>) -> Result<(), String> {
-    let pids: Vec<u32> = registry.0.lock().unwrap().keys().copied().collect();
-    for pid in pids {
-        let _ = kill_tree(pid).await;
+    let jobs: Vec<Arc<JobObject>> = {
+        let guard = registry.0.lock().unwrap();
+        guard.values().map(|p| p.job.clone()).collect()
+    };
+    for job in &jobs {
+        let _ = job.terminate(1);
+    }
+    // 等待所有任务排空
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while std::time::Instant::now() < deadline {
+        if !jobs.iter().any(|j| j.active_processes() > 0) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     Ok(())
+}
+
+/// 向运行中的进程写入一行标准输入并冲刷(末尾自动补换行)
+#[tauri::command]
+async fn send_input(
+    registry: State<'_, ProcessRegistry>,
+    pid: u32,
+    text: String,
+) -> Result<(), String> {
+    let stdin_holder = {
+        let guard = registry.0.lock().unwrap();
+        guard.get(&pid).map(|p| p.stdin.clone())
+    }
+    .ok_or_else(|| format!("进程 {pid} 未在运行"))?;
+
+    let mut lock = stdin_holder.lock().await;
+    if let Some(stdin) = lock.as_mut() {
+        let mut data = text.into_bytes();
+        if !data.ends_with(b"\n") {
+            data.push(b'\n');
+        }
+        stdin
+            .write_all(&data)
+            .await
+            .map_err(|e| format!("写入输入失败: {e}"))?;
+        stdin
+            .flush()
+            .await
+            .map_err(|e| format!("冲刷输入失败: {e}"))?;
+        Ok(())
+    } else {
+        Err(format!("进程 {pid} 的标准输入已关闭"))
+    }
 }
 
 #[tauri::command]
@@ -779,22 +1075,6 @@ fn list_running(registry: State<'_, ProcessRegistry>) -> Vec<RunningInfo> {
         .collect()
 }
 
-/// taskkill /T /F:回收整棵进程树(M1 过渡方案,M2 起换 Job Object)。
-/// 退出码 128 = 进程不存在,视为已停止成功。
-async fn kill_tree(pid: u32) -> Result<(), String> {
-    let out = Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .await
-        .map_err(|e| format!("taskkill 启动失败: {e}"))?;
-    if out.status.code() == Some(128) || out.status.success() {
-        Ok(())
-    } else {
-        Err(format!("停止进程 {pid} 失败:{}", String::from_utf8_lossy(&out.stderr).trim()))
-    }
-}
-
 // ---------------------------------------------------------------- 入口
 
 #[cfg(test)]
@@ -808,7 +1088,57 @@ mod tests {
             dec.feed(chunk, false, &mut out);
         }
         dec.feed(b"", true, &mut out);
+        dec.flush_tail(&mut out);
         out
+    }
+
+    /// 面板空白问题的回归:纯 ASCII 低频输出必须逐块立即出行,不得攒到 4KB 探测窗口。
+    /// feed 返回的 out 非空即代表前端能当块收到日志行。
+    #[test]
+    fn ascii_lines_stream_immediately_without_probe_window() {
+        let mut dec = LineDecoder::new();
+        let mut out = Vec::new();
+        dec.feed(b"14:37:41 [main] INFO line-1\n", false, &mut out);
+        assert_eq!(out, vec!["14:37:41 [main] INFO line-1"]);
+        out.clear();
+        dec.feed(b"line-2\n", false, &mut out);
+        assert_eq!(out, vec!["line-2"]);
+        out.clear();
+        // 结尾无换行的残行留在 carry,EOF 收口
+        dec.feed(b"partial-tail", false, &mut out);
+        assert!(out.is_empty());
+        dec.feed(b"", true, &mut out);
+        dec.flush_tail(&mut out);
+        assert_eq!(out, vec!["partial-tail"]);
+    }
+
+    /// 多字节未完整到达前不得出行(避免把半个字符拆进两行)
+    #[test]
+    fn incomplete_multibyte_is_held_not_emitted() {
+        let mut dec = LineDecoder::new();
+        let mut out = Vec::new();
+        let text = "日志中文行 ok\n".as_bytes();
+        dec.feed(&text[..4], false, &mut out);
+        assert!(out.is_empty(), "多字节未完整前不得出行");
+        dec.feed(&text[4..], false, &mut out);
+        assert_eq!(out, vec!["日志中文行 ok"]);
+    }
+
+    /// 同一行内 ASCII 与多字节混排、多字节跨块拆分:不丢字、不乱码
+    #[test]
+    fn mixed_ascii_and_multibyte_across_chunks() {
+        let line = "abc中文def\n".as_bytes();
+        let lines = lines_from(&[&line[..5], &line[5..]]);
+        assert_eq!(lines, vec!["abc中文def".to_string()]);
+    }
+
+    /// GBK 双字节跨块拆分:第二字节也要正确重组
+    #[test]
+    fn gbk_multibyte_split_across_chunks() {
+        let (raw, _, had_errors) = GBK.encode("中ab\n");
+        assert!(!had_errors);
+        let lines = lines_from(&[&raw[..1], &raw[1..]]);
+        assert_eq!(lines, vec!["中ab".to_string()]);
     }
 
     #[test]
@@ -851,6 +1181,122 @@ mod tests {
     fn crlf_is_trimmed() {
         let lines = lines_from(&[b"a\r\nb\r\n"]);
         assert_eq!(lines, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn read_stream_captures_process_output() {
+        let mut child = Command::new("cmd")
+            .args(["/C"])
+            .raw_arg("echo line1&echo line2")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        tokio::spawn(read_stream(stdout, Stream::Out, tx));
+        let mut lines = Vec::new();
+        while let Some((_, line)) = rx.recv().await {
+            lines.push(line);
+        }
+        child.wait().await.unwrap();
+        assert_eq!(lines, vec!["line1", "line2"]);
+    }
+
+    #[tokio::test]
+    async fn raw_arg_with_quotes_and_ascii_stream() {
+        let cmd = "echo \"15:21:45.166 [main] INFO auth\"";
+        let mut child = Command::new("cmd")
+            .args(["/C"])
+            .raw_arg(cmd)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let stdout = child.stdout.take().unwrap();
+        let (tx, mut rx) = mpsc::channel(16);
+        tokio::spawn(read_stream(stdout, Stream::Out, tx));
+        let mut lines = Vec::new();
+        while let Some((_, line)) = rx.recv().await {
+            lines.push(line);
+        }
+        child.wait().await.unwrap();
+        assert_eq!(lines, vec!["\"15:21:45.166 [main] INFO auth\""]);
+    }
+
+    /// 管道持活: 只要 stdin 句柄保持打开, 依赖输入的命令(如 set /p 或 wsl/bash)就不会因 EOF 提前退出
+    #[tokio::test]
+    async fn piped_stdin_kept_open_prevents_premature_exit() {
+        let mut child = Command::new("cmd")
+            .args(["/C"])
+            .raw_arg("set /p test_in=")
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+
+        let stdin = child.stdin.take().unwrap();
+        // 验证: 在 stdin 未关闭期间, 进程正常阻塞等待, 不会瞬间秒退
+        let exit_check = timeout(Duration::from_millis(150), child.wait()).await;
+        assert!(exit_check.is_err(), "held open stdin must keep the process waiting");
+
+        // 主动释放 stdin(发送 EOF), 进程得以正常结束
+        drop(stdin);
+        let exit_res = timeout(Duration::from_millis(1500), child.wait()).await;
+        assert!(exit_res.is_ok(), "closing stdin allows the process to finish");
+    }
+
+    /// Windows Job Object 治理: 挂入 Job 的进程及其子孙进程会被原子终止且排空
+    #[tokio::test]
+    async fn job_object_manages_and_terminates_process_tree() {
+        let job = JobObject::create_with_kill_on_close().unwrap();
+
+        // 启动一个双层 cmd 进程树: cmd /C "cmd /C set /p nested="
+        let child = Command::new("cmd")
+            .args(["/C"])
+            .raw_arg("cmd /C set /p nested=")
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+
+        let pid = child.id().unwrap();
+        job.assign_process(pid).unwrap();
+
+        // 等待子进程树生成
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // 验证 Job 中至少有活跃进程
+        assert!(job.active_processes() >= 1);
+
+        // 调用 terminate(1) 原子终止整棵树
+        job.terminate(1).unwrap();
+
+        // 验证排空: ActiveProcesses 应归零
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let mut drained = false;
+        while std::time::Instant::now() < deadline {
+            if job.active_processes() == 0 {
+                drained = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(drained, "Job Object 内所有进程必须排空清零");
+    }
+
+    // 诊断字体枚举输出(跑:npm run tauri 之外的 cargo test list_fonts -- --nocapture)
+    #[test]
+    fn list_fonts_diagnostic() {
+        let fonts = list_fonts();
+        println!("font count = {}", fonts.len());
+        for name in fonts.iter().take(25) {
+            println!("font: {:?}", name);
+        }
     }
 }
 
@@ -911,21 +1357,15 @@ fn harden_webview(webview: tauri::webview::PlatformWebview) {
     }
 }
 
-/// 退出前停掉所有运行中的进程树(同步:退出路径里不能 await)
+/// 退出前停掉所有运行中的进程树(同步:原子调用内核 TerminateJobObject)
 fn stop_all_sync(app: &AppHandle) {
-    let pids: Vec<u32> = app
-        .state::<ProcessRegistry>()
-        .0
-        .lock()
-        .unwrap()
-        .keys()
-        .copied()
-        .collect();
-    for pid in pids {
-        let _ = StdCommand::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
+    let registry = app.state::<ProcessRegistry>();
+    let jobs: Vec<Arc<JobObject>> = {
+        let guard = registry.0.lock().unwrap();
+        guard.values().map(|p| p.job.clone()).collect()
+    };
+    for job in jobs {
+        let _ = job.terminate(1);
     }
 }
 
@@ -938,6 +1378,8 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(ProcessRegistry::default())
         .invoke_handler(tauri::generate_handler![
             load_config,
@@ -949,13 +1391,25 @@ pub fn run() {
             stop_all_processes,
             list_running,
             open_terminal,
-            list_fonts
+            list_fonts,
+            send_input
         ])
         .setup(|app| {
-            // 去浏览器味(Windows:直调 WebView2 Settings)
+            // 品牌图标: 显式从打包内联资源解码 PNG, 规避 Windows 开发环境 PE 资源表查询失败导致 None
+            let app_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png"))
+                .ok()
+                .or_else(|| app.default_window_icon().cloned());
+            let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
+                .ok()
+                .or_else(|| app_icon.clone());
+
+            // 去浏览器味(Windows:直调 WebView2 Settings)并显式设置窗口与任务栏图标
             if let Some(main) = app.get_webview_window("main") {
                 #[cfg(windows)]
                 let _ = main.with_webview(harden_webview);
+                if let Some(ref icon) = app_icon {
+                    let _ = main.set_icon(icon.clone());
+                }
                 let _ = &main;
             }
 
@@ -985,7 +1439,7 @@ pub fn run() {
                         show_main(tray.app_handle());
                     }
                 });
-            if let Some(icon) = app.default_window_icon() {
+            if let Some(ref icon) = tray_icon {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
