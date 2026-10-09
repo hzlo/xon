@@ -6,7 +6,7 @@ import { installUpdate } from "../updater.js";
 const props = defineProps({
   /** @type {import("@tauri-apps/plugin-updater").Update} */
   update: { type: Object, required: true },
-  currentVersion: { type: String, default: "0.1.0" },
+  currentVersion: { type: String, default: "0.1.1" },
 });
 const emit = defineEmits(["close"]);
 

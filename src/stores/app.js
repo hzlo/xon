@@ -118,6 +118,8 @@ export const store = {
   config: reactive({ version: 1, groups: [], projects: [], scenarios: [], settings: { ...DEFAULT_SETTINGS } }),
   /** pid → { pid, projectId, commandId, commandName, key, startedAtMs } */
   running: reactive(new Map()),
+  /** 通过方案启动的方案 ID 集合(用于控制标题栏方案停止按钮) */
+  launchedScenarioIds: ref(new Set()),
   /** 运行方案列表(引用 config.scenarios,单独暴露便于模板使用) */
   scenarios: computed(() => store.config.scenarios ?? []),
   /** pid → 浅响应日志行数组 [{ id, stream, ts, text }] */
@@ -306,6 +308,27 @@ export async function initStore() {
         atMs: Date.now(),
       });
       store.running.delete(exit.pid);
+    }
+    // 若该命令所属方案中的所有命令均已停止,从已启动方案集合移除
+    if (store.launchedScenarioIds.value.size > 0) {
+      const next = new Set(store.launchedScenarioIds.value);
+      let changed = false;
+      for (const sId of next) {
+        const sc = (store.config.scenarios ?? []).find((s) => s.id === sId);
+        if (!sc) {
+          next.delete(sId);
+          changed = true;
+          continue;
+        }
+        const hasRunning = (sc.items ?? []).some((it) => runningOf(commandKey(it.projectId, it.commandId)) != null);
+        if (!hasRunning) {
+          next.delete(sId);
+          changed = true;
+        }
+      }
+      if (changed) {
+        store.launchedScenarioIds.value = next;
+      }
     }
     appendSysLine(
       exit.pid,
@@ -531,6 +554,7 @@ export async function stopGroup(group) {
 
 /** 停止所有运行中的进程 */
 export async function stopAll() {
+  store.launchedScenarioIds.value = new Set();
   for (const p of store.running.values()) {
     await api.stopProcess(p.pid).catch(() => {});
   }
@@ -640,12 +664,22 @@ export function updateScenario(scenario, name, items) {
 
 export function removeScenario(scenario) {
   const list = store.config.scenarios ?? [];
-  list.splice(list.indexOf(scenario), 1);
+  const idx = list.indexOf(scenario);
+  if (idx >= 0) list.splice(idx, 1);
+  if (store.launchedScenarioIds.value.has(scenario.id)) {
+    const next = new Set(store.launchedScenarioIds.value);
+    next.delete(scenario.id);
+    store.launchedScenarioIds.value = next;
+  }
   persist();
 }
 
 /** 按方案批量启动;支持单项独立延时(delaySeconds),默认间隔 400ms 避免抢占目录/端口 */
 export async function runScenario(scenario) {
+  const next = new Set(store.launchedScenarioIds.value);
+  next.add(scenario.id);
+  store.launchedScenarioIds.value = next;
+
   let started = 0;
   for (const item of scenario.items ?? []) {
     const loc = locateById(item.projectId, item.commandId);
@@ -662,6 +696,28 @@ export async function runScenario(scenario) {
     started += 1;
   }
   return started;
+}
+
+/** 停止方案包含的所有正在运行的命令 */
+export async function stopScenario(scenario) {
+  if (!scenario) return;
+  const next = new Set(store.launchedScenarioIds.value);
+  next.delete(scenario.id);
+  store.launchedScenarioIds.value = next;
+
+  for (const item of scenario.items ?? []) {
+    const key = commandKey(item.projectId, item.commandId);
+    const p = runningOf(key);
+    if (p) {
+      await api.stopProcess(p.pid).catch(() => {});
+    }
+  }
+}
+
+/** 判断方案是否是通过方案启动且当前仍有命令在运行 */
+export function isScenarioRunning(scenario) {
+  if (!scenario?.id || !store.launchedScenarioIds.value.has(scenario.id)) return false;
+  return (scenario.items ?? []).some((it) => runningOf(commandKey(it.projectId, it.commandId)) != null);
 }
 
 // ---------------------------------------------------------------- 导入 / 导出

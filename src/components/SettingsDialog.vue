@@ -10,6 +10,7 @@ import FontPicker from "./FontPicker.vue";
 const props = defineProps({
   /** @type {import("api.js").AppSettings} */
   initial: { type: Object, required: true },
+  version: { type: String, default: "0.1.1" },
 });
 const emit = defineEmits(["submit", "cancel", "show-update"]);
 
@@ -29,9 +30,14 @@ async function onCheckUpdate() {
       updateStatus.value = "当前已是最新版本";
     }
   } catch (err) {
-    updateStatus.value = err?.message?.includes("network")
-      ? "检查更新失败: 网络连接异常"
-      : "检查更新失败，请稍后重试";
+    const msg = String(err?.message || err || "");
+    if (msg.includes("404")) {
+      updateStatus.value = "检查更新失败: 未找到版本文件 (404)";
+    } else if (msg.includes("network") || msg.includes("Failed to fetch") || msg.includes("connect")) {
+      updateStatus.value = "检查更新失败: 网络连接异常";
+    } else {
+      updateStatus.value = `检查更新失败: ${msg || "请稍后重试"}`;
+    }
   } finally {
     checkingUpdate.value = false;
   }
@@ -169,7 +175,7 @@ function submit() {
           <label>关于与更新</label>
           <div class="update-card">
             <div class="update-meta">
-              <span class="app-tag">XON 0.1.0</span>
+              <span class="app-tag">XON {{ version }}</span>
               <span v-if="updateStatus" class="update-msg" :class="{ 'has-new': updateStatus.includes('新版本') }">
                 {{ updateStatus }}
               </span>

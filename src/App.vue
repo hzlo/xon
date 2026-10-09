@@ -21,12 +21,17 @@ import {
   commandKey,
   confirmAction,
   exportConfigToFile,
+  formatDuration,
   importConfigFromFile,
   initStore,
+  isScenarioRunning,
+  locateCommand,
   notify,
   removeScenario,
   runScenario,
   stopAll,
+  stopPid,
+  stopScenario,
   updateCommand,
   updateGroup,
   updateProject,
@@ -49,7 +54,7 @@ const ToastStack = defineAsyncComponent(() => import("./components/ToastStack.vu
 const UpdateDialog = defineAsyncComponent(() => import("./components/UpdateDialog.vue"));
 
 const activeUpdate = ref(null);
-const currentAppVersion = "0.1.0";
+const currentAppVersion = "0.1.1";
 
 // ---- 窗口控制(自定义标题栏;浏览器预览下不渲染) ----
 const appWindow = isTauri ? getCurrentWindow() : null;
@@ -246,6 +251,57 @@ async function runActiveScenario() {
   if (n === 0) notify("方案里的命令都已在运行,或已不存在");
 }
 
+const isCurrentScenarioRunning = computed(() => isScenarioRunning(activeScenario.value));
+
+async function stopActiveScenario() {
+  if (!activeScenario.value) return;
+  await stopScenario(activeScenario.value);
+}
+
+// ---- 运行中命令监控 & 悬停菜单 ----
+const runningMenuOpen = ref(false);
+let runningMenuTimer = null;
+
+function onRunningMouseEnter() {
+  if (store.runningCount.value === 0) return;
+  clearTimeout(runningMenuTimer);
+  runningMenuOpen.value = true;
+}
+
+function onRunningMouseLeave() {
+  clearTimeout(runningMenuTimer);
+  runningMenuTimer = setTimeout(() => {
+    runningMenuOpen.value = false;
+  }, 220);
+}
+
+watch(
+  () => store.runningCount.value,
+  (cnt) => {
+    if (cnt === 0) runningMenuOpen.value = false;
+  },
+);
+
+const runningList = computed(() => {
+  const result = [];
+  for (const entry of store.running.values()) {
+    const loc = locateCommand(entry.key);
+    result.push({
+      pid: entry.pid,
+      key: entry.key,
+      commandName: entry.commandName,
+      projectName: loc?.project?.name || "未知项目",
+      cmd: loc?.command?.cmd || "",
+      startedAtMs: entry.startedAtMs,
+    });
+  }
+  return result;
+});
+
+function selectRunningCommand(key) {
+  store.selectedKey.value = key;
+}
+
 function submitScenario(form) {
   const editing = scenarioOpen.value?.scenario;
   if (editing) updateScenario(editing, form.name, form.items);
@@ -341,12 +397,12 @@ async function onImport() {
           <span>启动方案</span>
         </button>
 
-        <!-- 全部停止按钮 (运行中进程 > 0 时激活) -->
+        <!-- 停止方案按钮 (仅在通过该方案启动且仍有运行中命令时出现) -->
         <button
-          v-if="store.runningCount.value > 0"
+          v-if="isCurrentScenarioRunning"
           class="pill-action-btn stop-btn"
-          title="停止全部运行中进程"
-          @click="stopAll"
+          :title="`停止当前方案: ${activeScenario?.name || ''}`"
+          @click="stopActiveScenario"
         >
           <Square class="pill-action-icon" />
         </button>
@@ -356,10 +412,85 @@ async function onImport() {
 
       <!-- 右侧：全局监控与设置 -->
       <div class="titlebar-right" data-tauri-drag-region>
-        <span class="running-chip" :class="{ active: store.runningCount.value > 0 }">
-          <span class="dot" aria-hidden="true"></span>
-          {{ store.runningCount.value }} 运行中
-        </span>
+        <!-- 运行中指示器与悬停浮层 -->
+        <div
+          class="running-wrapper"
+          @mouseenter="onRunningMouseEnter"
+          @mouseleave="onRunningMouseLeave"
+        >
+          <div
+            class="running-chip"
+            :class="{ active: store.runningCount.value > 0, clickable: store.runningCount.value > 0 }"
+            :title="store.runningCount.value > 0 ? '移入展开运行中命令' : '暂无运行中命令'"
+          >
+            <span class="dot" aria-hidden="true"></span>
+            <span>{{ store.runningCount.value }} 运行中</span>
+            <ChevronDown v-if="store.runningCount.value > 0" class="running-arrow" />
+          </div>
+
+          <!-- 运行中命令下拉浮层 -->
+          <div
+            v-if="runningMenuOpen && store.runningCount.value > 0"
+            class="running-dropdown-popover"
+          >
+            <div class="running-popover-header">
+              <span class="popover-title">运行中命令 ({{ store.runningCount.value }})</span>
+              <button
+                class="popover-stop-all-btn"
+                title="停止全部运行中命令"
+                @click="stopAll"
+              >
+                <Square :size="10" />
+                <span>全部停止</span>
+              </button>
+            </div>
+
+            <div class="running-items-list">
+              <div
+                v-for="item in runningList"
+                :key="item.pid"
+                class="running-item"
+                :class="{ 'is-selected': store.selectedKey.value === item.key }"
+                @click="selectRunningCommand(item.key)"
+              >
+                <span class="status-dot running" aria-hidden="true">
+                  <span class="dot-inner"></span>
+                </span>
+
+                <div class="item-meta">
+                  <div class="item-top">
+                    <span class="item-name" :title="item.commandName">{{ item.commandName }}</span>
+                    <span class="item-project" :title="item.projectName">{{ item.projectName }}</span>
+                  </div>
+                  <div class="item-bottom">
+                    <span class="item-uptime">{{ formatDuration(store.now.value - item.startedAtMs) }}</span>
+                    <span class="item-pid">PID {{ item.pid }}</span>
+                    <span v-if="item.cmd" class="item-cmd" :title="item.cmd">{{ item.cmd }}</span>
+                  </div>
+                </div>
+
+                <button
+                  class="item-stop-btn"
+                  :title="`停止 ${item.commandName}`"
+                  @click.stop="stopPid(item.pid)"
+                >
+                  <Square :size="11" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 全部停止按钮 (运行中 > 0 时常驻展示于右侧) -->
+        <button
+          v-if="store.runningCount.value > 0"
+          class="btn-stop-all"
+          title="停止全部运行中命令"
+          @click="stopAll"
+        >
+          <Square :size="11" />
+          <span>全部停止</span>
+        </button>
 
         <button class="btn-ghost icon-btn" title="导出配置" aria-label="导出配置" @click="onExport"><Download /></button>
         <button class="btn-ghost icon-btn" title="导入配置" aria-label="导入配置" @click="onImport"><Upload /></button>
@@ -430,6 +561,7 @@ async function onImport() {
     <SettingsDialog
       v-if="settingsOpen"
       :initial="store.config.settings"
+      :version="currentAppVersion"
       @submit="submitSettings"
       @cancel="settingsOpen = false"
       @show-update="(u) => { activeUpdate = u; settingsOpen = false; }"
@@ -685,16 +817,28 @@ async function onImport() {
   gap: var(--space-xs);
 }
 
+/* 运行中监控区域 & 悬停菜单 */
+.running-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
 .running-chip {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-sm);
-  padding: 2px 10px;
+  gap: 6px;
+  padding: 2px 9px;
   border-radius: var(--radius-sm);
   font: 500 0.82rem/1.6 var(--font-ui);
   color: var(--color-muted-foreground);
   border: 1px solid var(--color-border);
   background: var(--overlay-hover);
+  transition: all var(--dur-fast) var(--ease);
+}
+.running-chip.clickable {
+  cursor: pointer;
+  user-select: none;
 }
 .running-chip .dot {
   width: 7px;
@@ -710,6 +854,202 @@ async function onImport() {
 .running-chip.active .dot {
   background: var(--color-success, #A3BE8C);
   box-shadow: 0 0 6px rgba(163, 190, 140, 0.6);
+}
+.running-arrow {
+  width: 10px;
+  height: 10px;
+  opacity: 0.7;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.running-wrapper:hover .running-arrow {
+  transform: rotate(180deg);
+}
+
+/* 右侧全部停止按钮 */
+.btn-stop-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-destructive-soft-border);
+  background: var(--color-destructive-soft-bg);
+  color: var(--color-destructive);
+  font: 500 0.8rem var(--font-ui);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease);
+}
+.btn-stop-all:hover {
+  background: var(--color-destructive);
+  color: #ECEFF4;
+  border-color: var(--color-destructive);
+}
+
+/* 运行中命令悬停展开浮层 */
+.running-dropdown-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  width: 320px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* 鼠标跨越缝隙防丢失桥梁 */
+.running-dropdown-popover::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 0;
+  right: 0;
+  height: 8px;
+}
+
+.running-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-bg-alt);
+}
+.popover-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+}
+.popover-stop-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-destructive-soft-border);
+  background: var(--color-destructive-soft-bg);
+  color: var(--color-destructive);
+  font-size: 0.74rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease);
+}
+.popover-stop-all-btn:hover {
+  background: var(--color-destructive);
+  color: #ECEFF4;
+}
+
+.running-items-list {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.running-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+.running-item:hover {
+  background: var(--overlay-hover);
+}
+.running-item.is-selected {
+  background: var(--overlay-selected);
+}
+
+.item-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.item-name {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--color-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.item-project {
+  font-size: 0.72rem;
+  color: var(--color-muted-foreground);
+  background: var(--overlay-hover);
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.item-bottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.73rem;
+  color: var(--color-muted-foreground);
+  font-family: var(--font-mono);
+  min-width: 0;
+}
+
+.item-uptime {
+  color: var(--color-success, #A3BE8C);
+  flex-shrink: 0;
+}
+
+.item-pid {
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.item-cmd {
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.item-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-muted-foreground);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--dur-fast) var(--ease);
+}
+.item-stop-btn:hover {
+  background: var(--color-destructive-soft-bg);
+  color: var(--color-destructive);
 }
 
 /* 窗口控制按钮:贴右缘、占满标题栏高度、精致极简风格 */
