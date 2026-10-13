@@ -1,6 +1,6 @@
 <script setup>
 // 左侧监视面板外壳:搜索过滤栏 + 快捷新建(分组/项目)+ 递归分组树 + 底部状态
-import { computed, onMounted, onUnmounted, provide, ref } from "vue";
+import { computed, provide, ref } from "vue";
 import { Folder, FolderPlus, Package, Plus, Search } from "lucide-vue-next";
 import { store } from "../stores/app.js";
 import GroupNode from "./GroupNode.vue";
@@ -17,20 +17,6 @@ const searchFilter = ref("");
 provide("searchFilter", searchFilter);
 
 const addMenuOpen = ref(false);
-
-function closeAddMenu(e) {
-  if (!e.target.closest(".add-menu-wrap")) {
-    addMenuOpen.value = false;
-  }
-}
-
-onMounted(() => {
-  window.addEventListener("click", closeAddMenu);
-});
-
-onUnmounted(() => {
-  window.removeEventListener("click", closeAddMenu);
-});
 
 const isEmpty = () =>
   (store.config.groups?.length ?? 0) + (store.config.projects?.length ?? 0) === 0;

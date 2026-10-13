@@ -1,7 +1,7 @@
 <script setup>
 // 应用外壳:自定义标题栏(Run Configuration 方案胶囊/窗口控制)+ 工具条
 // + 左侧无限嵌套分组树 / 右侧实时终端,双面板可拖拽调整宽度。
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
 import {
   ChevronDown,
   Download,
@@ -54,7 +54,7 @@ const ToastStack = defineAsyncComponent(() => import("./components/ToastStack.vu
 const UpdateDialog = defineAsyncComponent(() => import("./components/UpdateDialog.vue"));
 
 const activeUpdate = ref(null);
-const currentAppVersion = "0.1.1";
+const currentAppVersion = "0.1.2";
 
 // ---- 窗口控制(自定义标题栏;浏览器预览下不渲染) ----
 const appWindow = isTauri ? getCurrentWindow() : null;
@@ -74,7 +74,6 @@ function onTitlebarDblClick(e) {
 
 onMounted(() => {
   initStore();
-  window.addEventListener("click", closeScenarioMenu);
 
   if (appWindow) {
     appWindow.isMaximized().then((m) => {
@@ -96,10 +95,6 @@ onMounted(() => {
       // 静默检查，忽略错误
     }
   }, 4000);
-});
-
-onUnmounted(() => {
-  window.removeEventListener("click", closeScenarioMenu);
 });
 
 const logoSrc = computed(() => logoColor);
@@ -219,12 +214,6 @@ watch(
   },
   { immediate: true },
 );
-
-function closeScenarioMenu(e) {
-  if (!e.target.closest(".run-config-pill")) {
-    scenarioMenuOpen.value = false;
-  }
-}
 
 function selectScenario(id) {
   activeScenarioId.value = id;

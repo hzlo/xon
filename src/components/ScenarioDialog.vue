@@ -300,7 +300,7 @@ defineExpose({ checkedCount: () => checkedCount.value });
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('cancel')">
+  <div class="modal-overlay">
     <div class="modal scenario-modal" role="dialog" aria-modal="true" aria-label="运行方案">
       <!-- 首行:标题 + 方案切换胶囊 + 关闭 -->
       <header class="dialog-topbar">

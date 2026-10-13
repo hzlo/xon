@@ -60,9 +60,6 @@ function place() {
   }
 }
 
-function onDocPointerdown(e) {
-  if (!rootEl.value.contains(e.target)) close();
-}
 function onReflow() {
   if (open.value) place();
 }
@@ -74,7 +71,6 @@ function openPanel() {
   active.value = Math.max(0, filtered.value.findIndex((f) => f === props.modelValue));
   place();
   nextTick(scrollActive);
-  document.addEventListener("pointerdown", onDocPointerdown, true);
   document.addEventListener("scroll", onReflow, true);
   window.addEventListener("resize", onReflow);
 }
@@ -82,7 +78,6 @@ function close() {
   if (!open.value) return;
   open.value = false;
   arrowOpen.value = false;
-  document.removeEventListener("pointerdown", onDocPointerdown, true);
   document.removeEventListener("scroll", onReflow, true);
   window.removeEventListener("resize", onReflow);
 }

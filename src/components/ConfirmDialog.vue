@@ -18,7 +18,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown, true));
 </script>
 
 <template>
-  <div v-if="confirmState" class="modal-overlay confirm-overlay" @click.self="settleConfirm(false)">
+  <div v-if="confirmState" class="modal-overlay confirm-overlay">
     <div class="modal confirm-modal" role="alertdialog" aria-modal="true" :aria-label="confirmState.title">
       <h2 class="confirm-title">{{ confirmState.title }}</h2>
       <p class="confirm-message">{{ confirmState.message }}</p>

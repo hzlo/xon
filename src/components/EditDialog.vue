@@ -71,7 +71,7 @@ function submit() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('cancel')">
+  <div class="modal-overlay">
     <div class="modal" role="dialog" aria-modal="true" :aria-label="title" @submit.prevent="submit">
       <h2 class="modal-title">{{ title }}</h2>
 
