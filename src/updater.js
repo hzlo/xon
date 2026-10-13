@@ -1,5 +1,6 @@
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { toRaw } from "vue";
 import { isTauri } from "./api.js";
 
 /**
@@ -26,10 +27,13 @@ export async function checkUpdate() {
  */
 export async function installUpdate(update, onProgress) {
   if (!update) return;
+  // Update 继承 Resource,内部有私有字段 #rid;若传入响应式代理,this 不是声明该字段的对象,
+  // downloadAndInstall 会抛 "Cannot read private member from an object whose class did not declare it"。
+  const rawUpdate = toRaw(update);
   let downloaded = 0;
   let contentLength = 0;
 
-  await update.downloadAndInstall((event) => {
+  await rawUpdate.downloadAndInstall((event) => {
     switch (event.event) {
       case "Started":
         contentLength = event.data.contentLength ?? 0;

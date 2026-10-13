@@ -1,7 +1,7 @@
 <script setup>
 // 应用外壳:自定义标题栏(Run Configuration 方案胶囊/窗口控制)+ 工具条
 // + 左侧无限嵌套分组树 / 右侧实时终端,双面板可拖拽调整宽度。
-import { computed, defineAsyncComponent, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref, shallowRef, watch } from "vue";
 import {
   ChevronDown,
   Download,
@@ -53,8 +53,9 @@ const ConfirmDialog = defineAsyncComponent(() => import("./components/ConfirmDia
 const ToastStack = defineAsyncComponent(() => import("./components/ToastStack.vue"));
 const UpdateDialog = defineAsyncComponent(() => import("./components/UpdateDialog.vue"));
 
-const activeUpdate = ref(null);
-const currentAppVersion = "0.1.2";
+// shallowRef:Update 内部用私有字段,深度代理会让 downloadAndInstall 的 this 变成 Proxy 而报错
+const activeUpdate = shallowRef(null);
+const currentAppVersion = "0.1.3";
 
 // ---- 窗口控制(自定义标题栏;浏览器预览下不渲染) ----
 const appWindow = isTauri ? getCurrentWindow() : null;
