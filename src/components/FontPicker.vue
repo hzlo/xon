@@ -1,7 +1,7 @@
 <script setup>
 // 字体选择组合框:输入过滤 + 自绘下拉。
 // 不用原生 datalist:WebView2 的弹层不受 color-scheme/CSS 控制,深色主题下是白底黑字。
-// 面板 fixed 定位锚住输入框(弹框 overflow:auto 会裁剪 absolute 子元素),滚动/缩放时跟随。
+// 面板 Teleport 到 body，彻底解决弹框 backdrop-filter/overflow 导致的定位偏移与截断问题。
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 
 const props = defineProps({
@@ -16,6 +16,7 @@ const open = ref(false);
 const active = ref(0);
 const rootEl = ref(null);
 const inputEl = ref(null);
+const panelEl = ref(null);
 const panelStyle = ref({});
 const arrowOpen = ref(false);
 
@@ -48,25 +49,27 @@ function place() {
   const r = el.getBoundingClientRect();
   const below = window.innerHeight - r.bottom;
   // 下方放不下且上方更宽裕时向上展开
-  if (below < 140 && r.top > below) {
+  if (below < 160 && r.top > below) {
     panelStyle.value = {
       left: `${r.left}px`,
       bottom: `${window.innerHeight - r.top + 4}px`,
       width: `${r.width}px`,
-      maxHeight: `${Math.min(264, r.top - 12)}px`,
+      maxHeight: `${Math.min(264, r.top - 16)}px`,
     };
   } else {
     panelStyle.value = {
       left: `${r.left}px`,
       top: `${r.bottom + 4}px`,
       width: `${r.width}px`,
-      maxHeight: `${Math.min(264, Math.max(120, below - 8))}px`,
+      maxHeight: `${Math.min(264, Math.max(120, below - 16))}px`,
     };
   }
 }
 
 function onDocPointerdown(e) {
-  if (rootEl.value && !rootEl.value.contains(e.target)) {
+  const inRoot = rootEl.value && rootEl.value.contains(e.target);
+  const inPanel = panelEl.value && panelEl.value.contains(e.target);
+  if (!inRoot && !inPanel) {
     close();
   }
 }
@@ -88,7 +91,10 @@ function openPanel(isSearch = false) {
     active.value = Math.max(0, idx);
   }
   place();
-  nextTick(scrollActive);
+  nextTick(() => {
+    place();
+    scrollActive();
+  });
   document.addEventListener("pointerdown", onDocPointerdown, true);
   document.addEventListener("scroll", onReflow, true);
   window.addEventListener("resize", onReflow);
@@ -109,6 +115,7 @@ function togglePanel() {
   if (open.value) {
     close();
   } else {
+    inputEl.value?.focus();
     openPanel();
   }
 }
@@ -146,13 +153,13 @@ function onKeydown(e) {
     active.value = (active.value + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
     nextTick(scrollActive);
   } else if (e.key === "Enter") {
-    if (!open.value) return; // 关闭时交给表单提交
+    if (!open.value) return;
     e.preventDefault();
     const f = filtered.value[active.value];
     if (f) select(f);
     else close();
   } else if (e.key === "Escape") {
-    if (!open.value) return; // 关闭时让外层弹框处理
+    if (!open.value) return;
     e.preventDefault();
     e.stopPropagation();
     close();
@@ -199,31 +206,34 @@ onBeforeUnmount(close);
       </svg>
     </button>
 
-    <ul
-      v-if="open"
-      :id="`${id}-listbox`"
-      class="fp-panel"
-      role="listbox"
-      :aria-label="`${id} 字体列表`"
-      :style="panelStyle"
-    >
-      <li
-        v-for="(f, i) in filtered"
-        :key="f"
-        :id="`${id}-opt-${i}`"
-        class="fp-opt"
-        role="option"
-        :aria-selected="f === modelValue"
-        :class="{ active: i === active }"
-        @mousedown.prevent
-        @mousemove="active = i"
-        @click="select(f)"
+    <Teleport to="body">
+      <ul
+        v-if="open"
+        :id="`${id}-listbox`"
+        ref="panelEl"
+        class="fp-panel"
+        role="listbox"
+        :aria-label="`${id} 字体列表`"
+        :style="panelStyle"
       >
-        <span class="fp-name">{{ f }}</span>
-        <span class="fp-sample" :style="{ fontFamily: `'${f}'` }">Aa 字 123</span>
-      </li>
-      <li v-if="!filtered.length" class="fp-empty">无匹配字体</li>
-    </ul>
+        <li
+          v-for="(f, i) in filtered"
+          :key="f"
+          :id="`${id}-opt-${i}`"
+          class="fp-opt"
+          role="option"
+          :aria-selected="f === modelValue"
+          :class="{ active: i === active }"
+          @mousedown.prevent
+          @mousemove="active = i"
+          @click="select(f)"
+        >
+          <span class="fp-name">{{ f }}</span>
+          <span class="fp-sample" :style="{ fontFamily: `'${f}'` }">Aa 字 123</span>
+        </li>
+        <li v-if="!filtered.length" class="fp-empty">无匹配字体</li>
+      </ul>
+    </Teleport>
   </div>
 </template>
 
@@ -258,7 +268,7 @@ onBeforeUnmount(close);
 }
 .fp-panel {
   position: fixed;
-  z-index: 1000;
+  z-index: 99999;
   margin: 0;
   padding: 4px;
   list-style: none;
@@ -268,6 +278,7 @@ onBeforeUnmount(close);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.3);
   overflow-y: auto;
   overscroll-behavior: contain;
+  box-sizing: border-box;
 }
 .fp-opt {
   display: flex;

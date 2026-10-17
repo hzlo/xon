@@ -4,13 +4,13 @@
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { listFonts } from "../api.js";
 import { checkUpdate } from "../updater.js";
-import { RefreshCw } from "lucide-vue-next";
+import { ChevronDown, RefreshCw } from "lucide-vue-next";
 import FontPicker from "./FontPicker.vue";
 
 const props = defineProps({
   /** @type {import("api.js").AppSettings} */
   initial: { type: Object, required: true },
-  version: { type: String, default: "0.1.5" },
+  version: { type: String, default: "0.1.6" },
 });
 const emit = defineEmits(["submit", "cancel", "show-update"]);
 
@@ -58,20 +58,47 @@ const form = reactive({
 });
 const accentInput = ref(null);
 
-function onKeydown(e) {
-  if (e.key === "Escape") emit("cancel");
+// 自定义关闭行为下拉菜单
+const closeSelectOpen = ref(false);
+const closeSelectRef = ref(null);
+
+function selectCloseAction(val) {
+  form.closeAction = val;
+  closeSelectOpen.value = false;
 }
+
+function onDocPointerdown(e) {
+  if (closeSelectRef.value && !closeSelectRef.value.contains(e.target)) {
+    closeSelectOpen.value = false;
+  }
+}
+
+function onKeydown(e) {
+  if (e.key === "Escape") {
+    if (closeSelectOpen.value) {
+      closeSelectOpen.value = false;
+      return;
+    }
+    emit("cancel");
+  }
+}
+
 onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
+  window.addEventListener("pointerdown", onDocPointerdown);
   nextTick(() => accentInput.value?.focus());
   try {
     fontCache ??= await listFonts();
     systemFonts.value = fontCache;
   } catch {
-    systemFonts.value = []; // 枚举失败时仍可手输字体名
+    systemFonts.value = [];
   }
 });
-onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown));
+
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeydown);
+  window.removeEventListener("pointerdown", onDocPointerdown);
+});
 
 function submit() {
   emit("submit", {
@@ -94,13 +121,13 @@ function submit() {
       <form @submit.prevent="submit">
         <div class="field-row">
           <div class="field">
-            <label for="set-theme">主题</label>
-            <select id="set-theme" v-model="form.theme" class="select" disabled>
-              <option value="dark">深色 (Nord)</option>
-            </select>
+            <label>主题</label>
+            <div class="theme-display">
+              <span>深色 (Nord)</span>
+            </div>
           </div>
           <div class="field">
-            <label for="set-accent">强调色(按钮/状态徽章随之派生)</label>
+            <label for="set-accent">强调色</label>
             <div class="accent-row">
               <input
                 id="set-accent"
@@ -115,7 +142,7 @@ function submit() {
         </div>
 
         <div class="field">
-          <label for="set-ui-font">界面字体(输入过滤,含全部系统已安装字体;留空用默认)</label>
+          <label for="set-ui-font">界面字体</label>
           <FontPicker
             id="set-ui-font"
             v-model="form.uiFont"
@@ -126,7 +153,7 @@ function submit() {
 
         <div class="field-row">
           <div class="field">
-            <label for="set-log-font">日志字体(留空用默认)</label>
+            <label for="set-log-font">日志字体</label>
             <FontPicker
               id="set-log-font"
               v-model="form.logFont"
@@ -163,11 +190,35 @@ function submit() {
         </div>
 
         <div class="field">
-          <label for="set-close">点击窗口关闭按钮时</label>
-          <select id="set-close" v-model="form.closeAction" class="select">
-            <option value="minimize">最小化到托盘(推荐)</option>
-            <option value="exit">完全退出(停止所有进程)</option>
-          </select>
+          <label>点击窗口关闭按钮时</label>
+          <div ref="closeSelectRef" class="custom-select" :class="{ open: closeSelectOpen }">
+            <button
+              type="button"
+              class="custom-select-trigger"
+              @click="closeSelectOpen = !closeSelectOpen"
+            >
+              <span>{{ form.closeAction === 'minimize' ? '最小化到托盘' : '完全退出' }}</span>
+              <ChevronDown class="select-chevron" :class="{ open: closeSelectOpen }" />
+            </button>
+            <div v-if="closeSelectOpen" class="custom-select-menu">
+              <button
+                type="button"
+                class="custom-select-option"
+                :class="{ active: form.closeAction === 'minimize' }"
+                @click="selectCloseAction('minimize')"
+              >
+                <span>最小化到托盘</span>
+              </button>
+              <button
+                type="button"
+                class="custom-select-option"
+                :class="{ active: form.closeAction === 'exit' }"
+                @click="selectCloseAction('exit')"
+              >
+                <span>完全退出</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- 软件版本与在线更新 -->
@@ -234,6 +285,104 @@ function submit() {
   border-radius: var(--radius-md);
   background: var(--input-bg);
   cursor: pointer;
+}
+.theme-display {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-md);
+  background: var(--input-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-muted-foreground);
+  font-size: 0.9231rem;
+  user-select: none;
+}
+.custom-select {
+  position: relative;
+  width: 100%;
+}
+.custom-select-trigger {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-md);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  color: var(--color-foreground);
+  font: inherit;
+  font-size: 0.9231rem;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.custom-select-trigger:focus-visible,
+.custom-select.open .custom-select-trigger {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-soft-border);
+}
+.select-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--color-muted-foreground);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.select-chevron.open {
+  transform: rotate(180deg);
+}
+.custom-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--nord-0);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.3);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: select-menu-in var(--dur-fast) var(--ease);
+}
+@keyframes select-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.custom-select-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-foreground);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.custom-select-option:hover {
+  background: rgba(236, 239, 244, 0.08);
+}
+.custom-select-option.active {
+  background: var(--overlay-selected);
+  color: var(--color-accent);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+  font-weight: 500;
 }
 .update-card {
   display: flex;

@@ -53,7 +53,7 @@ const UpdateDialog = defineAsyncComponent(() => import("./components/UpdateDialo
 
 // shallowRef:Update 内部用私有字段,深度代理会让 downloadAndInstall 的 this 变成 Proxy 而报错
 const activeUpdate = shallowRef(null);
-const currentAppVersion = "0.1.5";
+const currentAppVersion = "0.1.6";
 
 // ---- 窗口控制(自定义标题栏;浏览器预览下不渲染) ----
 const appWindow = isTauri ? getCurrentWindow() : null;

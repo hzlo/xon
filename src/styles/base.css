@@ -529,7 +529,8 @@ button {
   box-shadow: var(--glass-highlight), var(--shadow-lg);
   width: min(520px, calc(100vw - 48px));
   max-height: calc(100vh - 64px);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   transition: transform var(--dur-slow) var(--ease), opacity var(--dur-slow) var(--ease);
 }
 
