@@ -1,7 +1,7 @@
 <script setup>
 // 应用外壳:自定义标题栏(Run Configuration 方案胶囊/窗口控制)+ 工具条
 // + 左侧无限嵌套分组树 / 右侧实时终端,双面板可拖拽调整宽度。
-import { computed, defineAsyncComponent, onMounted, ref, shallowRef, watch } from "vue";
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, shallowRef, watch } from "vue";
 import {
   ChevronDown,
   Download,
@@ -53,7 +53,7 @@ const UpdateDialog = defineAsyncComponent(() => import("./components/UpdateDialo
 
 // shallowRef:Update 内部用私有字段,深度代理会让 downloadAndInstall 的 this 变成 Proxy 而报错
 const activeUpdate = shallowRef(null);
-const currentAppVersion = "0.1.4";
+const currentAppVersion = "0.1.5";
 
 // ---- 窗口控制(自定义标题栏;浏览器预览下不渲染) ----
 const appWindow = isTauri ? getCurrentWindow() : null;
@@ -94,6 +94,12 @@ onMounted(() => {
       // 静默检查，忽略错误
     }
   }, 4000);
+
+  window.addEventListener("click", closeScenarioMenu);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener("click", closeScenarioMenu);
 });
 
 const logoSrc = computed(() => logoColor);
@@ -194,6 +200,12 @@ function submitSettings(form) {
 const scenarioOpen = ref(null); // null = 关闭; {} = 新建; {scenario} = 编辑
 const activeScenarioId = ref("");
 const scenarioMenuOpen = ref(false);
+
+function closeScenarioMenu(e) {
+  if (!e.target.closest(".run-config-pill")) {
+    scenarioMenuOpen.value = false;
+  }
+}
 
 const activeScenario = computed(() =>
   store.scenarios.value.find((s) => s.id === activeScenarioId.value) ?? null,

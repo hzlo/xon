@@ -19,10 +19,15 @@ const inputEl = ref(null);
 const panelStyle = ref({});
 const arrowOpen = ref(false);
 
-// 过滤跟随输入文本:与原生 datalist 一致,清空输入即看全部
+const isSearching = ref(false);
+const searchQuery = ref("");
+
+// 过滤跟随输入文本：主动搜索时按关键字过滤；未输入搜索词时展示系统全量字体
 const filtered = computed(() => {
-  const q = props.modelValue.trim().toLowerCase();
-  if (!q) return props.fonts;
+  if (!isSearching.value || !searchQuery.value.trim()) {
+    return props.fonts;
+  }
+  const q = searchQuery.value.trim().toLowerCase();
   return props.fonts.filter((f) => f.toLowerCase().includes(q));
 });
 
@@ -60,26 +65,67 @@ function place() {
   }
 }
 
+function onDocPointerdown(e) {
+  if (rootEl.value && !rootEl.value.contains(e.target)) {
+    close();
+  }
+}
+
 function onReflow() {
   if (open.value) place();
 }
 
-function openPanel() {
-  if (open.value) return;
+function openPanel(isSearch = false) {
+  if (open.value && !isSearch) return;
   open.value = true;
   arrowOpen.value = true;
-  active.value = Math.max(0, filtered.value.findIndex((f) => f === props.modelValue));
+  if (!isSearch) {
+    isSearching.value = false;
+    searchQuery.value = "";
+    const idx = props.fonts.findIndex(
+      (f) => f.toLowerCase() === (props.modelValue || "").trim().toLowerCase(),
+    );
+    active.value = Math.max(0, idx);
+  }
   place();
   nextTick(scrollActive);
+  document.addEventListener("pointerdown", onDocPointerdown, true);
   document.addEventListener("scroll", onReflow, true);
   window.addEventListener("resize", onReflow);
 }
+
 function close() {
   if (!open.value) return;
   open.value = false;
   arrowOpen.value = false;
+  isSearching.value = false;
+  searchQuery.value = "";
+  document.removeEventListener("pointerdown", onDocPointerdown, true);
   document.removeEventListener("scroll", onReflow, true);
   window.removeEventListener("resize", onReflow);
+}
+
+function togglePanel() {
+  if (open.value) {
+    close();
+  } else {
+    openPanel();
+  }
+}
+
+function onInputFocus() {
+  openPanel();
+  nextTick(() => {
+    inputEl.value?.select();
+  });
+}
+
+function onInput(e) {
+  const val = e.target.value;
+  isSearching.value = true;
+  searchQuery.value = val;
+  emit("update:modelValue", val);
+  openPanel(true);
 }
 
 function select(f) {
@@ -134,8 +180,9 @@ onBeforeUnmount(close);
       :aria-expanded="open"
       :aria-controls="open ? `${id}-listbox` : undefined"
       :aria-activedescendant="open && filtered[active] ? `${id}-opt-${active}` : undefined"
-      @input="emit('update:modelValue', $event.target.value)"
-      @focus="openPanel"
+      @input="onInput"
+      @focus="onInputFocus"
+      @click="openPanel()"
       @keydown="onKeydown"
     />
     <button
@@ -145,7 +192,7 @@ onBeforeUnmount(close);
       tabindex="-1"
       aria-label="展开字体列表"
       @mousedown.prevent
-      @click="open ? close() : openPanel()"
+      @click="togglePanel"
     >
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
         <path d="M4 6l4 4 4-4" />
@@ -211,16 +258,14 @@ onBeforeUnmount(close);
 }
 .fp-panel {
   position: fixed;
-  z-index: 80;
+  z-index: 1000;
   margin: 0;
   padding: 4px;
   list-style: none;
-  background: var(--glass-panel-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
+  background: var(--nord-0);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  box-shadow: var(--glass-highlight), var(--shadow-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.3);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -229,17 +274,18 @@ onBeforeUnmount(close);
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  padding: 4px 8px;
+  padding: 5px 8px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease);
 }
 .fp-opt:hover,
 .fp-opt.active {
-  background: var(--overlay-hover);
+  background: rgba(236, 239, 244, 0.08);
 }
 .fp-opt[aria-selected="true"] {
   background: var(--overlay-selected);
+  color: var(--color-accent);
   box-shadow: inset 2px 0 0 var(--color-accent);
 }
 .fp-name {
