@@ -133,6 +133,15 @@ export function openTerminal(dir) {
 }
 
 /**
+ * 在默认浏览器中打开 URL。
+ * @param {string} url
+ * @returns {Promise<void>}
+ */
+export function openBrowserUrl(url) {
+  return impl.openBrowserUrl(url);
+}
+
+/**
  * 枚举系统已安装字体(GDI,含所有 Windows 安装字体)。
  * @returns {Promise<string[]>} 字体族名列表,已排序去重
  */
@@ -190,6 +199,7 @@ const tauriImpl = {
     }),
   openTerminal: (dir) => invoke("open_terminal", { dir }),
   openDirInExplorer: (dir) => openPath(dir),
+  openBrowserUrl: (url) => openPath(url).catch(() => window.open(url, "_blank")),
   listFonts: () => invoke("list_fonts"),
   onProcLog: (cb) => listen("proc:log", (e) => cb(e.payload)),
   onProcExit: (cb) => listen("proc:exit", (e) => cb(e.payload)),
@@ -206,44 +216,27 @@ function createMockImpl() {
   /** @type {AppConfig} */
   let config = {
     version: 1,
-    groups: [
-      {
-        id: "g-demo",
-        name: "示例分组",
-        groups: [
-          {
-            id: "g-sub",
-            name: "子分组(可无限嵌套)",
-            groups: [],
-            projects: [
-              {
-                id: "p-sub",
-                name: "嵌套项目",
-                dir: "D:\\projects\\private\\xon",
-                commands: [{ id: "c-sub", name: "嵌套命令", cmd: "echo hello from nested", cwd: "", env: {} }],
-              },
-            ],
-          },
-        ],
-        projects: [
-          {
-            id: "p-demo",
-            name: "演示项目",
-            dir: "D:\\projects\\private\\xon",
-            commands: [
-              { id: "c-ping", name: "ping 测试", cmd: "ping 127.0.0.1 -n 30", cwd: "", env: {} },
-              { id: "c-dir", name: "目录内容", cmd: "dir /b", cwd: "", env: {} },
-            ],
-          },
-        ],
-      },
-    ],
+    groups: [],
     projects: [
       {
-        id: "p-root",
-        name: "根级项目",
+        id: "p-demo",
+        name: "演示服务",
         dir: "D:\\projects\\private\\xon",
-        commands: [{ id: "c-root", name: "列目录", cmd: "dir", cwd: "", env: {} }],
+        collapsed: false,
+        commands: [
+          { id: "c-ping", name: "ping 测试", cmd: "ping 127.0.0.1 -n 30", cwd: "", env: {}, kind: "service" },
+          { id: "c-dir", name: "目录内容", cmd: "dir /b", cwd: "", env: {}, kind: "task" },
+        ],
+      },
+      {
+        id: "p-sub",
+        name: "前端应用",
+        dir: "D:\\projects\\private\\xon",
+        collapsed: false,
+        commands: [
+          { id: "c-dev", name: "启动", cmd: "npm run dev --port 3000", cwd: "", env: {}, kind: "service" },
+          { id: "c-build", name: "打包构建", cmd: "npm run build", cwd: "", env: {}, kind: "task" },
+        ],
       },
     ],
     scenarios: [
@@ -356,6 +349,9 @@ function createMockImpl() {
     },
     async openDirInExplorer(dir) {
       window.alert(`[mock] 在资源管理器打开:${dir}`);
+    },
+    async openBrowserUrl(url) {
+      window.open(url, "_blank");
     },
     async onProcLog(cb) {
       emitLogSubs.push(cb);

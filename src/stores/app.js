@@ -152,7 +152,7 @@ export function commandKey(projectId, commandId) {
   return `${projectId}/${commandId}`;
 }
 
-/** 按 key 在配置树中定位 { group, project, command };找不到返回 null(分组树可无限嵌套,含根级项目) */
+/** 按 key 在配置列表中定位 { project, command }; 找不到返回 null */
 export function locateCommand(key) {
   if (!key) return null;
   for (const project of store.config.projects ?? []) {
@@ -162,56 +162,7 @@ export function locateCommand(key) {
       }
     }
   }
-  let found = null;
-  const walk = (groups) => {
-    for (const group of groups) {
-      for (const project of group.projects ?? []) {
-        for (const command of project.commands ?? []) {
-          if (command.id && commandKey(project.id, command.id) === key) {
-            found = { group, project, command };
-            return true;
-          }
-        }
-      }
-      if (walk(group.groups ?? [])) return true;
-    }
-    return false;
-  };
-  walk(store.config.groups);
-  return found;
-}
-
-/** 深度优先找分组在父列表中的位置 */
-function findGroupPosition(groups, groupId) {
-  for (let i = 0; i < groups.length; i++) {
-    const group = groups[i];
-    if (group.id === groupId) return { list: groups, index: i, group };
-    const deeper = findGroupPosition(group.groups ?? [], groupId);
-    if (deeper) return deeper;
-  }
   return null;
-}
-
-export function findGroupById(groupId) {
-  return groupId ? findGroupPosition(store.config.groups, groupId) : null;
-}
-
-/** 深度优先找项目在父列表中的位置 */
-function findProjectPosition(groups, projectId) {
-  for (const group of groups) {
-    const list = group.projects ?? [];
-    const index = list.findIndex((p) => p.id === projectId);
-    if (index >= 0) return { list, index, project: list[index] };
-    const deeper = findProjectPosition(group.groups ?? [], projectId);
-    if (deeper) return deeper;
-  }
-  return null;
-}
-
-/** 判断 group(子树)里是否包含 groupId 的分组 */
-function subtreeHasGroup(group, groupId) {
-  if (group.id === groupId) return true;
-  return (group.groups ?? []).some((child) => subtreeHasGroup(child, groupId));
 }
 
 export function runningOf(key) {
@@ -276,8 +227,26 @@ export function clearLog(pid) {
 export async function initStore() {
   const [config, runningList] = await Promise.all([api.loadConfig(), api.listRunning()]);
   store.config.version = config.version ?? 1;
-  store.config.groups = config.groups ?? [];
-  store.config.projects = config.projects ?? [];
+  store.config.groups = [];
+
+  // 自动平滑升级为两级架构: 展开历史 groups 合并进 projects
+  if (config.groups && config.groups.length > 0) {
+    const list = [...(config.projects ?? [])];
+    const extract = (groups) => {
+      for (const g of groups) {
+        for (const p of g.projects ?? []) {
+          const newName = (!p.name || p.name === g.name) ? g.name : `${g.name} - ${p.name}`;
+          list.push({ ...p, name: newName });
+        }
+        extract(g.groups ?? []);
+      }
+    };
+    extract(config.groups);
+    store.config.projects = list;
+    persist();
+  } else {
+    store.config.projects = config.projects ?? [];
+  }
   store.config.scenarios = config.scenarios ?? [];
   store.config.settings = { ...DEFAULT_SETTINGS, ...(config.settings ?? {}) };
   if (typeof store.config.settings.accent === "string" && store.config.settings.accent.toLowerCase().replace("#", "") === ["22", "c5", "5e"].join("")) {
@@ -346,7 +315,7 @@ export async function initStore() {
 
 let persistTimer = null;
 
-function persist() {
+export function persist() {
   clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     const plain = JSON.parse(
@@ -390,10 +359,16 @@ export function removeGroup(group) {
   persist();
 }
 
-export function addProject(group, { name, dir }) {
-  const project = { id: genId("p"), name, dir, collapsed: false, commands: [] };
-  if (group) (group.projects ??= []).push(project);
-  else (store.config.projects ??= []).push(project);
+export function addProject(spec) {
+  const form = spec && typeof spec === "object" ? spec : {};
+  const project = {
+    id: genId("p"),
+    name: form.name || "新项目",
+    dir: form.dir || "",
+    collapsed: false,
+    commands: [],
+  };
+  (store.config.projects ??= []).push(project);
   persist();
   return project;
 }
@@ -405,15 +380,94 @@ export function updateProject(project, { name, dir }) {
 }
 
 export function removeProject(project) {
-  for (const cmd of project.commands) stopIfRunning(project, cmd, true);
-  const pos = findProjectPosition(store.config.groups, project.id)
-    ?? findProjectPosition([{ id: "__root__", projects: store.config.projects ?? [] }], project.id);
-  if (pos) pos.list.splice(pos.index, 1);
+  for (const cmd of project.commands ?? []) stopIfRunning(project, cmd, true);
+  const list = store.config.projects ?? [];
+  const idx = list.findIndex((p) => p.id === project.id);
+  if (idx >= 0) list.splice(idx, 1);
   persist();
 }
 
+/** 拖拽重排项目顺序 */
+export function reorderProjects(fromIndex, toIndex) {
+  const list = store.config.projects ?? [];
+  if (fromIndex < 0 || toIndex < 0 || fromIndex >= list.length || toIndex >= list.length || fromIndex === toIndex) return;
+  const [moved] = list.splice(fromIndex, 1);
+  list.splice(toIndex, 0, moved);
+  persist();
+}
+
+/** 拖拽重排命令顺序 */
+export function reorderCommands(project, fromIndex, toIndex) {
+  const list = project.commands ?? [];
+  if (fromIndex < 0 || toIndex < 0 || fromIndex >= list.length || toIndex >= list.length || fromIndex === toIndex) return;
+  const [moved] = list.splice(fromIndex, 1);
+  list.splice(toIndex, 0, moved);
+  persist();
+}
+
+/** 判断是否为一次性任务/构建脚本 */
+export function isTaskCommand(command) {
+  if (!command) return false;
+  if (command.kind === "task") return true;
+  if (command.kind === "service") return false;
+  const text = `${command.name || ""} ${command.cmd || ""}`.toLowerCase();
+  return /build|package|clean|shutdown|deploy|copy|打包|编译|关机|发布/i.test(text);
+}
+
+/** 智能清洗命令行显示,去除冗余 JVM 内存参数,提取核心目标 */
+export function cleanCmdSnippet(cmd) {
+  if (!cmd) return "";
+  const trimmed = cmd.trim();
+
+  // 1. Java jar: 提取真实 jar 包名称
+  const jarMatch = trimmed.match(/-jar\s+["']?([^"'\s]+\.jar)["']?/i);
+  if (jarMatch) {
+    const jarName = jarMatch[1].split(/[\\/]/).pop();
+    return `jar: ${jarName}`;
+  }
+
+  // 2. Maven: 提取 package 模块或 goal
+  if (/^mvn\b/i.test(trimmed)) {
+    const plMatch = trimmed.match(/-pl\s+["']?([^"'\s]+)["']?/i);
+    if (plMatch) {
+      const moduleName = plMatch[1].split(/[\\/]/).pop();
+      return `mvn: ${moduleName}`;
+    }
+    const goalMatch = trimmed.match(/^mvn\s+([a-zA-Z:-]+)/i);
+    if (goalMatch) return `mvn ${goalMatch[1]}`;
+  }
+
+  // 3. Dotnet: 提取 dll 名称
+  const dotnetMatch = trimmed.match(/^dotnet\s+["']?([^"'\s]+\.dll)["']?/i);
+  if (dotnetMatch) {
+    const dllName = dotnetMatch[1].split(/[\\/]/).pop();
+    return `dotnet: ${dllName}`;
+  }
+
+  // 4. npm/pnpm/yarn/bun run
+  const pkgRunMatch = trimmed.match(/^(pnpm|npm|yarn|bun)(\s+run)?\s+([a-zA-Z0-9_:.-]+)/i);
+  if (pkgRunMatch) {
+    return `${pkgRunMatch[1]} ${pkgRunMatch[3]}`;
+  }
+
+  // 5. 去除冗余参数并保留核心
+  let s = trimmed;
+  if (/^java\b/i.test(s)) {
+    s = s.replace(/-Xm[sx]\S+/gi, "").replace(/-D\S+/gi, "").replace(/\s+/g, " ").trim();
+  }
+  return s;
+}
+
 export function addCommand(project, spec) {
-  const command = { id: genId("c"), name: spec.name, cmd: spec.cmd, shell: spec.shell || "cmd", cwd: spec.cwd, env: spec.env };
+  const command = {
+    id: genId("c"),
+    name: spec.name,
+    cmd: spec.cmd,
+    shell: spec.shell || "cmd",
+    cwd: spec.cwd,
+    env: spec.env,
+    kind: spec.kind || (isTaskCommand(spec) ? "task" : "service"),
+  };
   project.commands.push(command);
   persist();
   return command;
@@ -425,6 +479,7 @@ export function updateCommand(command, spec) {
   command.shell = spec.shell || "cmd";
   command.cwd = spec.cwd;
   command.env = spec.env;
+  if (spec.kind) command.kind = spec.kind;
   persist();
 }
 
@@ -535,6 +590,7 @@ export async function startGroup(group) {
   for (const { project, command } of items) {
     const key = commandKey(project.id, command.id);
     if (runningOf(key)) continue;
+    if (isTaskCommand(command)) continue; // 批量默认跳过一次性构建任务
     if (started > 0) {
       await new Promise((r) => setTimeout(r, 200));
     }
@@ -549,6 +605,92 @@ export async function stopGroup(group) {
   const items = allCommandsOfGroup(group);
   for (const { project, command } of items) {
     await stopIfRunning(project, command);
+  }
+}
+
+/** 批量启动项目下的命令 */
+export async function startProject(project) {
+  let started = 0;
+  for (const cmd of project.commands ?? []) {
+    const key = commandKey(project.id, cmd.id);
+    if (runningOf(key)) continue;
+    if (isTaskCommand(cmd)) continue; // 默认跳过任务/构建
+    if (started > 0) await new Promise((r) => setTimeout(r, 200));
+    await startCommand(project, cmd);
+    started++;
+  }
+  // 如果全是任务，则启动第一个
+  if (started === 0 && (project.commands ?? []).length > 0) {
+    for (const cmd of project.commands) {
+      const key = commandKey(project.id, cmd.id);
+      if (runningOf(key)) continue;
+      if (started > 0) await new Promise((r) => setTimeout(r, 200));
+      await startCommand(project, cmd);
+      started++;
+      break;
+    }
+  }
+  return started;
+}
+
+/** 批量停止项目下所有运行中命令 */
+export async function stopProject(project) {
+  for (const cmd of project.commands ?? []) {
+    await stopIfRunning(project, cmd);
+  }
+}
+
+/** 克隆/复制一条命令 */
+export function duplicateCommand(project, command) {
+  const spec = {
+    name: `${command.name} (副本)`,
+    cmd: command.cmd,
+    shell: command.shell || "cmd",
+    cwd: command.cwd || "",
+    env: { ...(command.env ?? {}) },
+    kind: command.kind,
+  };
+  const newCmd = addCommand(project, spec);
+  notify(`已克隆命令「${newCmd.name}」`);
+  return newCmd;
+}
+
+/** 全部展开 */
+export function expandAll() {
+  const walk = (groups) => {
+    for (const g of groups) {
+      g.collapsed = false;
+      for (const p of g.projects ?? []) p.collapsed = false;
+      walk(g.groups ?? []);
+    }
+  };
+  walk(store.config.groups ?? []);
+  for (const p of store.config.projects ?? []) p.collapsed = false;
+  persist();
+}
+
+/** 全部折叠 */
+export function collapseAll() {
+  const walk = (groups) => {
+    for (const g of groups) {
+      g.collapsed = true;
+      for (const p of g.projects ?? []) p.collapsed = true;
+      walk(g.groups ?? []);
+    }
+  };
+  walk(store.config.groups ?? []);
+  for (const p of store.config.projects ?? []) p.collapsed = true;
+  persist();
+}
+
+/** 复制文本到剪贴板 */
+export async function copyToClipboard(text, successMsg = "已复制到剪贴板") {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    notify(successMsg);
+  } catch (err) {
+    notify(`复制失败: ${err}`);
   }
 }
 
@@ -569,58 +711,6 @@ export function selectFirstCommand() {
       return;
     }
   }
-  const walk = (groups) => {
-    for (const g of groups) {
-      for (const p of g.projects ?? []) {
-        if (p.commands?.length > 0) {
-          store.selectedKey.value = commandKey(p.id, p.commands[0].id);
-          return true;
-        }
-      }
-      if (walk(g.groups ?? [])) return true;
-    }
-    return false;
-  };
-  walk(store.config.groups ?? []);
-}
-
-/**
- * 拖拽移动节点:分组或项目移动到目标分组(或根级)。
- * 防御:分组不能移进自己/自己的后代;同层移动视为无变化。
- */
-export function moveNode(type, id, targetGroupId) {
-  let node = null;
-  let fromList = null;
-  if (type === "group") {
-    const pos = findGroupById(id);
-    if (!pos) return false;
-    node = pos.group;
-    fromList = pos.list;
-    if (targetGroupId && (id === targetGroupId || subtreeHasGroup(node, targetGroupId))) {
-      return false; // 不能移进自己或自己的后代
-    }
-  } else {
-    const pos = findProjectPosition(store.config.groups, id)
-      ?? findProjectPosition([{ id: "__root__", projects: store.config.projects ?? [] }], id);
-    if (!pos) return false;
-    node = pos.project;
-    fromList = pos.list;
-  }
-
-  let toList;
-  if (targetGroupId) {
-    const target = findGroupById(targetGroupId);
-    if (!target) return false;
-    toList = type === "group" ? (target.group.groups ??= []) : (target.group.projects ??= []);
-  } else {
-    toList = type === "group" ? store.config.groups : (store.config.projects ??= []);
-  }
-  if (toList === fromList) return false;
-
-  fromList.splice(fromList.indexOf(node), 1);
-  toList.push(node);
-  persist();
-  return true;
 }
 
 // ---------------------------------------------------------------- 设置
@@ -633,20 +723,13 @@ export function updateSettings(patch) {
 
 // ---------------------------------------------------------------- 运行方案
 
-/** 按 id 在配置树中定位项目与命令(含根级项目);已删除的返回 null */
+/** 按 id 在配置树中定位项目与命令;已删除的返回 null */
 export function locateById(projectId, commandId) {
-  const found = locateProjectAny(projectId);
-  if (!found) return null;
-  const command = found.project.commands.find((c) => c.id === commandId);
+  const project = (store.config.projects ?? []).find((p) => p.id === projectId);
+  if (!project) return null;
+  const command = (project.commands ?? []).find((c) => c.id === commandId);
   if (!command) return null;
-  return { project: found.project, command };
-}
-
-function locateProjectAny(projectId) {
-  const inRoot = (store.config.projects ?? []).find((p) => p.id === projectId);
-  if (inRoot) return { project: inRoot };
-  const pos = findProjectPosition(store.config.groups, projectId);
-  return pos ? { project: pos.project } : null;
+  return { project, command };
 }
 
 export function addScenario(name, items) {

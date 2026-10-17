@@ -1,7 +1,11 @@
-/* 左侧树共享样式: 图标区分类型, 缩进只按层级 (每层一个统一的 .tree-children 容器) */
+/* 左侧树共享样式: 极客 Nord 设计风格, 清晰的视觉层级与微小状态感知 */
+
+.tree-section {
+  width: 100%;
+}
 
 .tree-children {
-  margin-left: 12px;
+  margin-left: 10px;
   border-left: 1px solid var(--color-divider);
   padding-left: 4px;
 }
@@ -11,64 +15,104 @@
   height: 14px;
   flex: none;
   color: var(--color-muted-foreground);
+  transition: color var(--dur-fast) var(--ease);
 }
 
 .project-row,
 .cmd-row,
 .group-row {
   width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  min-height: 28px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  box-sizing: border-box;
 }
 
-/* 分组/项目行可点击折叠 */
-.group-row,
-.project-row {
+.chevron {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--color-muted-foreground);
+  transition: transform var(--dur-normal) var(--ease);
   cursor: pointer;
+  padding: 1px;
+}
+.chevron.collapsed {
+  transform: rotate(-90deg);
 }
 
 .group-name {
   font-weight: 600;
-  font-size: 0.96rem;
-  cursor: pointer;
+  font-size: 0.94rem;
+  color: var(--color-foreground);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.chevron {
-  width: 13px;
-  height: 13px;
-  flex: none;
-  color: var(--color-muted-foreground);
-  transition: transform var(--dur-normal) var(--ease);
-}
-.chevron.collapsed {
-  transform: rotate(-90deg);
-}
-
-.count {
-  font-size: 0.8rem;
-  color: var(--color-muted-foreground);
-  font-family: var(--font-mono);
-  opacity: 0.7;
-}
-
 .project-name {
-  font-size: 0.9231rem;
+  font-size: 0.91rem;
   font-weight: 500;
   color: var(--color-foreground);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
 }
 
-.cmd-row {
-  position: relative;
+.count {
+  font-size: 0.77rem;
+  color: var(--color-muted-foreground);
+  font-family: var(--font-mono);
+  opacity: 0.65;
+  flex: none;
 }
 
-/* 微小状态指示灯: 告别嘈杂的大灰色胶囊 */
+/* 冒泡状态指示小角标 (父级折叠时依旧可见) */
+.bubble-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  line-height: 1.2;
+  flex: none;
+}
+.bubble-badge.running {
+  background: rgba(163, 190, 140, 0.16);
+  color: var(--color-success, #A3BE8C);
+  border: 1px solid rgba(163, 190, 140, 0.35);
+}
+.bubble-badge.running .badge-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--color-success, #A3BE8C);
+}
+.bubble-badge.error {
+  background: rgba(191, 97, 106, 0.18);
+  color: var(--color-destructive, #BF616A);
+  border: 1px solid rgba(191, 97, 106, 0.35);
+  font-weight: 600;
+}
+
+/* 命令行状态灯与任务模式图标统一槽位: 严格固定尺寸与居中, 消除缩进偏差 */
+.cmd-status-box {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
 .status-dot {
   width: 14px;
   height: 14px;
@@ -101,31 +145,54 @@
   50% { transform: scale(1.15); opacity: 0.8; }
 }
 
+.cmd-task-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--color-muted-foreground);
+  opacity: 0.75;
+}
+.cmd-row.is-running .cmd-task-icon {
+  color: var(--color-accent);
+  opacity: 1;
+}
+
 .cmd-name {
-  font-size: 0.9231rem;
+  font-size: 0.88rem;
   font-weight: 500;
   flex: none;
-  max-width: 48%;
+  max-width: 46%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* 点击直达浏览器的端口徽章 */
 .cmd-port-badge {
   font-family: var(--font-mono);
-  font-size: 0.77rem;
+  font-size: 0.75rem;
   padding: 0 4px;
+  line-height: 16px;
   border-radius: var(--radius-sm);
   background: var(--color-accent-soft-bg);
   color: var(--color-accent);
   border: 1px solid var(--color-accent-soft-border);
   flex: none;
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease);
+}
+.cmd-port-badge:hover {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 6px var(--color-accent-glow-soft);
 }
 
+/* 清洗后的干净命令行摘要 */
 .cmd-snippet {
   flex: 1;
   min-width: 0;
-  font: 400 0.8rem/1.4 var(--font-mono);
+  font: 400 0.77rem/1.3 var(--font-mono);
   color: var(--color-muted-foreground);
   opacity: 0.6;
   overflow: hidden;
@@ -135,57 +202,78 @@
 
 .cmd-uptime {
   font-family: var(--font-mono);
-  font-size: 0.77rem;
+  font-size: 0.75rem;
   color: var(--color-success, #A3BE8C);
   margin-left: auto;
   margin-right: 2px;
   flex: none;
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .cmd-exit-code {
   font-family: var(--font-mono);
-  font-size: 0.77rem;
+  font-size: 0.75rem;
   color: var(--color-destructive);
   margin-left: auto;
   margin-right: 2px;
   flex: none;
 }
 
-.row-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
+.cmd-task-done {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--color-muted-foreground);
+  opacity: 0.7;
+  margin-left: auto;
+  margin-right: 2px;
   flex: none;
 }
 
-.group-quick-actions {
+/* 按钮操作区:默认透明，仅在 hover 或聚焦时显示 */
+.row-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
+  flex: none;
+  margin-left: auto;
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--dur-fast) var(--ease);
 }
-.row:hover .group-quick-actions {
+.row:hover .row-actions,
+.row:focus-within .row-actions {
   opacity: 1;
+  pointer-events: auto;
 }
 
-.manage-actions {
-  visibility: hidden;
+/* 独立项目/工具分割线 */
+.standalone-divider {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px 4px 8px;
+  margin-top: 6px;
+  border-top: 1px solid var(--color-divider);
 }
-.row:hover .manage-actions,
-.row:focus-within .manage-actions {
-  visibility: visible;
+.standalone-title {
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+  letter-spacing: 0.04em;
+}
+.standalone-count {
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--color-muted-foreground);
+  opacity: 0.6;
 }
 
 .inline-empty {
-  margin: var(--space-xs) 0 var(--space-md) var(--space-lg);
-  padding: var(--space-sm) var(--space-md);
-  font-size: 0.85rem;
+  margin: var(--space-xs) 0 var(--space-xs) var(--space-sm);
+  padding: 4px 8px;
+  font-size: 0.8rem;
   color: var(--color-muted-foreground);
-  opacity: 0.75;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
+  opacity: 0.7;
 }
 
 /* 拖拽投放目标高亮 */

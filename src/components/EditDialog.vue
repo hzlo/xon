@@ -3,6 +3,7 @@
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { FolderOpen } from "lucide-vue-next";
 import { pickFolder } from "../api.js";
+import { isTaskCommand } from "../stores/app.js";
 
 const props = defineProps({
   kind: { type: String, required: true }, // group | project | command
@@ -20,6 +21,7 @@ const form = reactive({
   cmd: props.initial.cmd ?? "",
   shell: props.initial.shell ?? "cmd",
   cwd: props.initial.cwd ?? "",
+  kindType: props.initial.kind ?? (props.initial.cmd ? (isTaskCommand(props.initial) ? "task" : "service") : "service"),
   envText: Object.entries(props.initial.env ?? {})
     .map(([k, v]) => `${k}=${v}`)
     .join("\n"),
@@ -65,6 +67,7 @@ function submit() {
     cmd: form.cmd.trim(),
     shell: form.shell || "cmd",
     cwd: form.cwd.trim(),
+    kind: form.kindType,
     env,
   });
 }
@@ -88,6 +91,28 @@ function submit() {
             placeholder="如:前端服务"
           />
           <span v-if="errors.name" class="field-error">{{ errors.name }}</span>
+        </div>
+
+        <div v-if="kind === 'command'" class="field">
+          <label>模式类型</label>
+          <div class="kind-segmented">
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ active: form.kindType === 'service' }"
+              @click="form.kindType = 'service'"
+            >
+              常驻服务 (Service)
+            </button>
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ active: form.kindType === 'task' }"
+              @click="form.kindType = 'task'"
+            >
+              执行任务 (Task / Build)
+            </button>
+          </div>
         </div>
 
         <div v-if="kind === 'project'" class="field">
@@ -178,5 +203,33 @@ function submit() {
   flex: none;
   padding: 5px 10px;
   font-size: 0.9231rem;
+}
+.kind-segmented {
+  display: flex;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+.seg-btn {
+  flex: 1;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  background: transparent;
+  color: var(--color-muted-foreground);
+  border: none;
+  border-radius: calc(var(--radius-sm) - 1px);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease);
+}
+.seg-btn:hover {
+  color: var(--color-foreground);
+}
+.seg-btn.active {
+  background: var(--color-card);
+  color: var(--color-foreground);
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
 }
 </style>

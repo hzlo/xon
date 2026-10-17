@@ -10,7 +10,7 @@ import FontPicker from "./FontPicker.vue";
 const props = defineProps({
   /** @type {import("api.js").AppSettings} */
   initial: { type: Object, required: true },
-  version: { type: String, default: "0.1.3" },
+  version: { type: String, default: "0.1.4" },
 });
 const emit = defineEmits(["submit", "cancel", "show-update"]);
 

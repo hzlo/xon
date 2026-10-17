@@ -15,7 +15,6 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   addCommand,
-  addGroup,
   addProject,
   addScenario,
   commandKey,
@@ -33,7 +32,6 @@ import {
   stopPid,
   stopScenario,
   updateCommand,
-  updateGroup,
   updateProject,
   updateScenario,
   updateSettings,
@@ -55,7 +53,7 @@ const UpdateDialog = defineAsyncComponent(() => import("./components/UpdateDialo
 
 // shallowRef:Update 内部用私有字段,深度代理会让 downloadAndInstall 的 this 变成 Proxy 而报错
 const activeUpdate = shallowRef(null);
-const currentAppVersion = "0.1.3";
+const currentAppVersion = "0.1.4";
 
 // ---- 窗口控制(自定义标题栏;浏览器预览下不渲染) ----
 const appWindow = isTauri ? getCurrentWindow() : null;
@@ -134,11 +132,11 @@ function onSplitterKeydown(e) {
   e.preventDefault();
 }
 
-// ---- 新建 / 编辑对话框(分组、项目、命令;mode 区分新建/编辑) ----
+// ---- 新建 / 编辑对话框(项目、命令;mode 区分新建/编辑) ----
 const dialog = ref(null);
 
 function openCreate(payload) {
-  dialog.value = { kind: payload.kind, mode: "create", parentGroup: payload.parentGroup ?? null, project: payload.project ?? null };
+  dialog.value = { kind: payload.kind, mode: "create", project: payload.project ?? null };
 }
 
 function openEdit(payload) {
@@ -153,30 +151,25 @@ const dialogTitle = computed(() => {
   const d = dialog.value;
   if (!d) return "";
   if (d.mode === "edit") {
-    if (d.kind === "command") return "编辑命令";
-    if (d.kind === "project") return "编辑项目";
-    return "重命名分组";
+    return d.kind === "command" ? "编辑命令" : "编辑项目";
   }
-  if (d.kind === "command") return "新建命令";
-  if (d.kind === "project") return d.parentGroup ? `在「${d.parentGroup.name}」中新建项目` : "新建项目";
-  return d.parentGroup ? `在「${d.parentGroup.name}」中新建子分组` : "新建分组";
+  return d.kind === "command"
+    ? (d.project ? `在「${d.project.name}」中新建命令` : "新建命令")
+    : "新建项目";
 });
 
 const dialogInitial = computed(() => {
   const d = dialog.value;
   if (!d || d.mode !== "edit") return {};
-  return d.command ?? d.project ?? d.group ?? {};
+  return d.command ?? d.project ?? {};
 });
 
 function submitDialog(form) {
   const d = dialog.value;
   if (!d) return;
-  if (d.kind === "group") {
-    if (d.mode === "edit") updateGroup(d.group, form.name);
-    else addGroup(d.parentGroup?.id ?? null, form.name);
-  } else if (d.kind === "project") {
+  if (d.kind === "project") {
     if (d.mode === "edit") updateProject(d.project, form);
-    else addProject(d.parentGroup, form);
+    else addProject(form);
   } else if (d.kind === "command") {
     if (d.mode === "edit") {
       updateCommand(d.command, form);
