@@ -24,6 +24,7 @@ import {
   stopPid,
   store,
 } from "../stores/app.js";
+import { parseAnsiLine } from "../utils/ansi.js";
 
 onMounted(() => {
   if (!store.selectedKey.value) {
@@ -37,6 +38,28 @@ const selKey = computed(() =>
 );
 const proc = computed(() => (selKey.value ? runningOf(selKey.value) : null));
 const lines = computed(() => store.selectedLines.value);
+
+// ---- ANSI 渲染 ----
+// 日志行对象入缓冲后不再变化,按行 id 缓存解析结果,避免滚屏/搜索时重复解析。
+// 单行解析结果约 0.5KB,上限 1 万条约 5MB,足以覆盖多个标签页各 5000 行的缓冲。
+const ANSI_CACHE_MAX = 10000;
+const ansiCache = new Map();
+
+function ansiOf(line) {
+  let hit = ansiCache.get(line.id);
+  if (!hit) {
+    hit = parseAnsiLine(line.text);
+    if (ansiCache.size >= ANSI_CACHE_MAX) {
+      let drop = Math.floor(ANSI_CACHE_MAX / 4);
+      for (const key of ansiCache.keys()) {
+        ansiCache.delete(key);
+        if (--drop <= 0) break;
+      }
+    }
+    ansiCache.set(line.id, hit);
+  }
+  return hit;
+}
 
 // ---- 标签页 (Tabs) ----
 const openTabs = ref([]);
@@ -103,7 +126,8 @@ const filteredLines = computed(() => {
   }
   const q = query.value.trim().toLowerCase();
   if (q) {
-    list = list.filter((l) => l.text.toLowerCase().includes(q));
+    // 用去掉转义序列的纯文本匹配,避免 ANSI 参数干扰搜索结果
+    list = list.filter((l) => ansiOf(l).plain.toLowerCase().includes(q));
   }
   return list;
 });
@@ -288,7 +312,11 @@ function onClear() {
       >
         <div v-for="line in filteredLines" :key="line.id" v-memo="[line.id]" class="log-line">
           <span class="log-ts">{{ formatTime(line.ts) }}</span>
-          <span :class="streamClass(line.stream)">{{ line.text }}</span>
+          <span :class="streamClass(line.stream)"><template v-if="ansiOf(line).styled"><span
+                v-for="(seg, si) in ansiOf(line).segs"
+                :key="si"
+                :style="seg.style"
+              >{{ seg.text }}</span></template><template v-else>{{ ansiOf(line).plain }}</template></span>
         </div>
 
         <div v-if="!lines || lines.length === 0" class="empty-state">

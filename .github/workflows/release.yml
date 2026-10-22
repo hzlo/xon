@@ -7,9 +7,9 @@ name: Release XON
   workflow_dispatch:
     inputs:
       tag:
-        description: '发布版本标签 (例如 v0.1.6)'
+        description: '发布版本标签 (例如 v0.1.7)'
         required: false
-        default: 'v0.1.6'
+        default: 'v0.1.7'
 
 jobs:
   release:
@@ -30,7 +30,7 @@ jobs:
             $tag = "${{ inputs.tag }}"
           }
           if ($tag -eq "main" -or $tag -eq "") {
-            $tag = "v0.1.6"
+            $tag = "v0.1.7"
           }
           Write-Output "tag=$tag" >> $env:GITHUB_OUTPUT
           Write-Host "Releasing version: $tag"
