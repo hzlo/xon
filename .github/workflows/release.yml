@@ -16,6 +16,8 @@ jobs:
     permissions:
       contents: write
     runs-on: windows-latest
+    env:
+      CARGO_INCREMENTAL: 0
 
     steps:
       - name: 检出代码
@@ -25,13 +27,13 @@ jobs:
         id: version
         shell: pwsh
         run: |
-            $tag = "${{ github.ref_name }}"
-            if ("${{ github.ref_type }}" -ne "tag" -and "${{ inputs.tag }}" -ne "") {
-              $tag = "${{ inputs.tag }}"
-            }
-            if ($tag -eq "main" -or $tag -eq "") {
-              $tag = "v0.1.9"
-            }
+          $tag = "${{ github.ref_name }}"
+          if ("${{ github.ref_type }}" -ne "tag" -and "${{ inputs.tag }}" -ne "") {
+            $tag = "${{ inputs.tag }}"
+          }
+          if ($tag -eq "main" -or $tag -eq "") {
+            $tag = "v0.1.9"
+          }
           Write-Output "tag=$tag" >> $env:GITHUB_OUTPUT
           Write-Host "Releasing version: $tag"
 

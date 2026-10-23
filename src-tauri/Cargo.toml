@@ -42,10 +42,12 @@ windows = { version = "0.62", features = [
 windows-core = "0.62"
 
 
-# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+# 优化构建速度与产物体积平衡:
+# 使用 ThinLTO + 16 codegen-units 替代 Fat LTO + 单核 codegen-units=1，
+# 充分利用 CI 机器多核并行编译与链接，构建耗时大幅缩减，产物体积差异可忽略。
 [profile.release]
-codegen-units = 1
-lto = true
 opt-level = 3
+lto = "thin"
+codegen-units = 16
 panic = "abort"
 strip = true
