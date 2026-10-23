@@ -2,7 +2,7 @@
 // 字体选择组合框:输入过滤 + 自绘下拉。
 // 不用原生 datalist:WebView2 的弹层不受 color-scheme/CSS 控制,深色主题下是白底黑字。
 // 面板 Teleport 到 body，彻底解决弹框 backdrop-filter/overflow 导致的定位偏移与截断问题。
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 const props = defineProps({
   id: { type: String, required: true },
@@ -48,19 +48,35 @@ function place() {
   if (!el) return;
   const r = el.getBoundingClientRect();
   const below = window.innerHeight - r.bottom;
+
+  // 自适应宽度：最小 440px(完全容纳类似 IoskeleyMonoNL Nerd Font Mono ExtraLight 这样的超长字体)，
+  // 最大不超过 540px 或视口边界
+  const maxAvailWidth = window.innerWidth - 24;
+  const targetMinWidth = Math.min(Math.max(440, r.width), maxAvailWidth);
+
+  // 保证面板不超出屏幕右侧
+  let left = r.left;
+  if (left + targetMinWidth > window.innerWidth - 12) {
+    left = Math.max(12, window.innerWidth - targetMinWidth - 12);
+  }
+
   // 下方放不下且上方更宽裕时向上展开
-  if (below < 160 && r.top > below) {
+  if (below < 180 && r.top > below) {
     panelStyle.value = {
-      left: `${r.left}px`,
+      left: `${left}px`,
       bottom: `${window.innerHeight - r.top + 4}px`,
-      width: `${r.width}px`,
+      width: "max-content",
+      minWidth: `${targetMinWidth}px`,
+      maxWidth: `min(540px, ${maxAvailWidth}px)`,
       maxHeight: `${Math.min(264, r.top - 16)}px`,
     };
   } else {
     panelStyle.value = {
-      left: `${r.left}px`,
+      left: `${left}px`,
       top: `${r.bottom + 4}px`,
-      width: `${r.width}px`,
+      width: "max-content",
+      minWidth: `${targetMinWidth}px`,
+      maxWidth: `min(540px, ${maxAvailWidth}px)`,
       maxHeight: `${Math.min(264, Math.max(120, below - 16))}px`,
     };
   }
@@ -69,7 +85,8 @@ function place() {
 function onDocPointerdown(e) {
   const inRoot = rootEl.value && rootEl.value.contains(e.target);
   const inPanel = panelEl.value && panelEl.value.contains(e.target);
-  if (!inRoot && !inPanel) {
+  const isOurLabel = e.target.closest(`label[for="${props.id}"]`);
+  if (!inRoot && !inPanel && !isOurLabel) {
     close();
   }
 }
@@ -120,11 +137,35 @@ function togglePanel() {
   }
 }
 
+function getLabelEl() {
+  return document.querySelector(`label[for="${props.id}"]`);
+}
+
+function onLabelClick(e) {
+  e.preventDefault();
+  togglePanel();
+}
+
+onMounted(() => {
+  const lbl = getLabelEl();
+  if (lbl) {
+    lbl.addEventListener("click", onLabelClick);
+  }
+});
+
 function onInputFocus() {
-  openPanel();
+  if (!open.value) {
+    openPanel();
+  }
   nextTick(() => {
     inputEl.value?.select();
   });
+}
+
+function onInputClick() {
+  if (!open.value) {
+    openPanel();
+  }
 }
 
 function onInput(e) {
@@ -168,7 +209,13 @@ function onKeydown(e) {
   }
 }
 
-onBeforeUnmount(close);
+onBeforeUnmount(() => {
+  const lbl = getLabelEl();
+  if (lbl) {
+    lbl.removeEventListener("click", onLabelClick);
+  }
+  close();
+});
 </script>
 
 <template>
@@ -181,6 +228,7 @@ onBeforeUnmount(close);
       role="combobox"
       :value="modelValue"
       :placeholder="placeholder"
+      :title="modelValue"
       autocomplete="off"
       spellcheck="false"
       aria-autocomplete="list"
@@ -189,7 +237,7 @@ onBeforeUnmount(close);
       :aria-activedescendant="open && filtered[active] ? `${id}-opt-${active}` : undefined"
       @input="onInput"
       @focus="onInputFocus"
-      @click="openPanel()"
+      @click="onInputClick"
       @keydown="onKeydown"
     />
     <button
@@ -224,6 +272,7 @@ onBeforeUnmount(close);
           role="option"
           :aria-selected="f === modelValue"
           :class="{ active: i === active }"
+          :title="f"
           @mousedown.prevent
           @mousemove="active = i"
           @click="select(f)"
@@ -240,9 +289,14 @@ onBeforeUnmount(close);
 <style scoped>
 .fp {
   position: relative;
+  width: 100%;
 }
 .fp-input {
+  width: 100%;
   padding-right: 28px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .fp-arrow {
   position: absolute;
@@ -300,6 +354,8 @@ onBeforeUnmount(close);
   box-shadow: inset 2px 0 0 var(--color-accent);
 }
 .fp-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

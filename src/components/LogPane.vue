@@ -1,7 +1,10 @@
 <script setup>
 // 右侧终端面板:多标签(Tabs)+ 高密度日志查看器 + 底部轻量状态栏
 import {
+  CheckSquare,
+  Copy,
   Eraser,
+  ExternalLink,
   Play,
   Pause,
   RotateCw,
@@ -11,12 +14,15 @@ import {
   X,
 } from "lucide-vue-next";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { openBrowserUrl } from "../api.js";
+import ContextMenu from "./ContextMenu.vue";
 import {
   clearLog,
   commandKey,
   formatDuration,
   formatTime,
   locateCommand,
+  notify,
   restartCommand,
   runningOf,
   selectFirstCommand,
@@ -39,16 +45,195 @@ const selKey = computed(() =>
 const proc = computed(() => (selKey.value ? runningOf(selKey.value) : null));
 const lines = computed(() => store.selectedLines.value);
 
-// ---- ANSI 渲染 ----
+// ---- ANSI 与高密度日志渲染 ----
 // 日志行对象入缓冲后不再变化,按行 id 缓存解析结果,避免滚屏/搜索时重复解析。
 // 单行解析结果约 0.5KB,上限 1 万条约 5MB,足以覆盖多个标签页各 5000 行的缓冲。
 const ANSI_CACHE_MAX = 10000;
 const ansiCache = new Map();
 
+const URL_REGEX = /(?:https?:\/\/[^\s"'`<>]+|\b(?:localhost|127\.0\.0\.1):\d+(?:\/[^\s"'`<>]*)?)/gi;
+
+function hasPossibleUrl(str) {
+  return (
+    str.includes("http://") ||
+    str.includes("https://") ||
+    str.includes("localhost:") ||
+    str.includes("127.0.0.1:")
+  );
+}
+
+function sanitizeUrl(raw) {
+  let url = raw;
+  while (/[.,;:!?)\]]$/.test(url)) {
+    if (url.endsWith(")")) {
+      const opens = (url.match(/\(/g) || []).length;
+      const closes = (url.match(/\)/g) || []).length;
+      if (opens >= closes) break;
+    }
+    url = url.slice(0, -1);
+  }
+  return url;
+}
+
+function findUrlsInPlain(plain) {
+  if (!hasPossibleUrl(plain)) return [];
+  URL_REGEX.lastIndex = 0;
+  const urls = [];
+  let match;
+  while ((match = URL_REGEX.exec(plain)) !== null) {
+    const raw = match[0];
+    const clean = sanitizeUrl(raw);
+    if (!clean) continue;
+    const start = match.index;
+    const end = start + clean.length;
+    const href =
+      clean.startsWith("http://") || clean.startsWith("https://")
+        ? clean
+        : `http://${clean}`;
+    urls.push({ start, end, href, text: clean });
+    URL_REGEX.lastIndex = match.index + raw.length;
+  }
+  return urls;
+}
+
+/**
+ * 将整行 plain 文本中检测到的 URL 绝对跨度,映射对齐回各个 ANSI 切片。
+ * 完美解决 CLI 工具(如 Vite)将 URL 中间端口加粗导致切片截断的问题,
+ * 确保整条 URL(含协议、主机、端口、路径)完整识别、完整下划线且能全局点击。
+ */
+function alignSegmentsWithUrls(segs, plain, styled) {
+  const urls = findUrlsInPlain(plain);
+  if (urls.length === 0) {
+    return { tokens: segs, hasTokens: styled };
+  }
+
+  const tokens = [];
+  let pos = 0;
+  let urlIdx = 0;
+
+  for (let i = 0; i < segs.length; i++) {
+    const seg = segs[i];
+    const segText = seg.text;
+    if (!segText) continue;
+
+    const segStart = pos;
+    const segEnd = pos + segText.length;
+    pos = segEnd;
+
+    while (urlIdx < urls.length && urls[urlIdx].end <= segStart) {
+      urlIdx++;
+    }
+
+    let cursor = segStart;
+    let localUrlIdx = urlIdx;
+
+    while (cursor < segEnd && localUrlIdx < urls.length) {
+      const u = urls[localUrlIdx];
+      if (u.start >= segEnd) {
+        break;
+      }
+
+      if (cursor < u.start) {
+        const sliceEnd = Math.min(segEnd, u.start);
+        tokens.push({
+          text: segText.slice(cursor - segStart, sliceEnd - segStart),
+          style: seg.style,
+          url: null,
+        });
+        cursor = sliceEnd;
+      }
+
+      if (cursor < segEnd && cursor >= u.start && cursor < u.end) {
+        const sliceEnd = Math.min(segEnd, u.end);
+        tokens.push({
+          text: segText.slice(cursor - segStart, sliceEnd - segStart),
+          style: seg.style,
+          url: u.href,
+        });
+        cursor = sliceEnd;
+      }
+
+      if (cursor >= u.end) {
+        localUrlIdx++;
+      }
+    }
+
+    if (cursor < segEnd) {
+      tokens.push({
+        text: segText.slice(cursor - segStart),
+        style: seg.style,
+        url: null,
+      });
+    }
+  }
+
+  return { tokens, hasTokens: true };
+}
+
+function tokenizeSegments(segs, styled, plain) {
+  return alignSegmentsWithUrls(segs, plain, styled);
+}
+
+function cleanSysText(text) {
+  if (!text) return "";
+  let clean = text.replace(/^—\s*|\s*—$/g, "").trim();
+  clean = clean.replace(/:([^\s])/g, ": $1");
+  clean = clean.replace(/,([^\s])/g, ", $1");
+  return clean;
+}
+
+function classifySys(text) {
+  if (!text) return { kind: "info", clean: "" };
+  const clean = cleanSysText(text);
+  if (/异常退出|\bexit\s+[1-9]\d*|failed|crash/i.test(clean)) {
+    return { kind: "error", clean };
+  }
+  if (/启动|started|running/i.test(clean)) {
+    return { kind: "start", clean };
+  }
+  if (/停止|退出|已终止|exit/i.test(clean)) {
+    return { kind: "stop", clean };
+  }
+  return { kind: "info", clean };
+}
+
+function classifyLine(stream, text) {
+  if (!text) return "";
+  if (
+    /(?:^|\b)(?:error|err|fatal|panic|exception)(?:\b|:)/i.test(text) &&
+    !/(?:0 errors|no errors|without error)/i.test(text)
+  ) {
+    return "is-error";
+  }
+  if (stream === "err" || /(?:^|\b)(?:warn|warning)(?:\b|:)/i.test(text)) {
+    return "is-warning";
+  }
+  return "";
+}
+
 function ansiOf(line) {
   let hit = ansiCache.get(line.id);
   if (!hit) {
-    hit = parseAnsiLine(line.text);
+    const rawParsed = parseAnsiLine(line.text);
+    const lineClass = classifyLine(line.stream, rawParsed.plain);
+    let sysKind = "info";
+    let cleanSys = "";
+    if (line.stream === "sys") {
+      const res = classifySys(rawParsed.plain);
+      sysKind = res.kind;
+      cleanSys = res.clean;
+    }
+    const { tokens, hasTokens } = tokenizeSegments(rawParsed.segs, rawParsed.styled, rawParsed.plain);
+    hit = {
+      plain: rawParsed.plain,
+      styled: rawParsed.styled,
+      segs: rawParsed.segs,
+      tokens,
+      hasTokens,
+      lineClass,
+      sysKind,
+      cleanSys,
+    };
     if (ansiCache.size >= ANSI_CACHE_MAX) {
       let drop = Math.floor(ANSI_CACHE_MAX / 4);
       for (const key of ansiCache.keys()) {
@@ -217,6 +402,89 @@ function onRestart() {
 function onClear() {
   if (pid.value != null) clearLog(pid.value);
 }
+
+// ---- 右键上下文菜单 (Context Menu) ----
+const contextMenu = ref({ visible: false, x: 0, y: 0, items: [] });
+
+async function copyText(text, successMsg) {
+  try {
+    await navigator.clipboard.writeText(text);
+    notify(successMsg);
+  } catch (err) {
+    console.error("复制失败:", err);
+  }
+}
+
+function selectAllLogs() {
+  if (!bodyRef.value) return;
+  const range = document.createRange();
+  range.selectNodeContents(bodyRef.value);
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function onLogContextMenu(e) {
+  const linkEl = e.target.closest(".log-link");
+  const linkUrl = linkEl ? linkEl.getAttribute("href") : null;
+  const selText = window.getSelection()?.toString()?.trim() || "";
+
+  const items = [];
+
+  if (linkUrl) {
+    items.push({
+      label: "在默认浏览器中打开",
+      icon: ExternalLink,
+      action: () => openBrowserUrl(linkUrl),
+    });
+    items.push({
+      label: "复制链接地址",
+      icon: Copy,
+      action: () => copyText(linkUrl, "链接已复制到剪贴板"),
+    });
+    items.push({ divider: true });
+  }
+
+  if (selText) {
+    items.push({
+      label: "复制",
+      icon: Copy,
+      badge: "Ctrl+C",
+      action: () => copyText(selText, "已复制到剪贴板"),
+    });
+  }
+
+  items.push({
+    label: "全选日志",
+    icon: CheckSquare,
+    badge: "Ctrl+A",
+    action: selectAllLogs,
+  });
+
+  items.push({ divider: true });
+
+  items.push({
+    label: "清空日志",
+    icon: Eraser,
+    action: onClear,
+  });
+
+  items.push({
+    label: paused.value ? "恢复自动滚动" : "暂停自动滚动",
+    icon: paused.value ? Play : Pause,
+    action: () => {
+      if (paused.value) resumeAutoScroll();
+      else manualPaused.value = true;
+    },
+  });
+
+  contextMenu.value = {
+    visible: true,
+    x: e.clientX,
+    y: e.clientY,
+    items,
+  };
+}
 </script>
 
 <template>
@@ -303,21 +571,57 @@ function onClear() {
     </div>
 
     <!-- 日志流主体 -->
-    <div class="log-body">
+    <div class="log-body" @contextmenu.prevent="onLogContextMenu">
       <div
         v-if="sel"
         ref="bodyRef"
         class="log-viewer"
         @scroll="onScroll"
       >
-        <div v-for="line in filteredLines" :key="line.id" v-memo="[line.id]" class="log-line">
-          <span class="log-ts">{{ formatTime(line.ts) }}</span>
-          <span :class="streamClass(line.stream)"><template v-if="ansiOf(line).styled"><span
-                v-for="(seg, si) in ansiOf(line).segs"
-                :key="si"
-                :style="seg.style"
-              >{{ seg.text }}</span></template><template v-else>{{ ansiOf(line).plain }}</template></span>
-        </div>
+        <template v-for="line in filteredLines" :key="line.id">
+          <!-- 系统事件分割线 (已启动/退出/停止/异常) -->
+          <div
+            v-if="line.stream === 'sys'"
+            v-memo="[line.id]"
+            class="log-sys-divider"
+            :class="`is-${ansiOf(line).sysKind}`"
+          >
+            <span class="sys-dash"></span>
+            <div class="sys-badge">
+              <span class="sys-dot"></span>
+              <span class="sys-ts">{{ formatTime(line.ts) }}</span>
+              <span class="sys-text">{{ ansiOf(line).cleanSys }}</span>
+            </div>
+            <span class="sys-dash"></span>
+          </div>
+
+          <!-- 常规日志行 (stdout / stderr) -->
+          <div
+            v-else
+            v-memo="[line.id]"
+            class="log-line"
+            :class="ansiOf(line).lineClass"
+          >
+            <span class="log-ts">{{ formatTime(line.ts) }}</span>
+            <span :class="streamClass(line.stream)">
+              <template v-if="ansiOf(line).hasTokens">
+                <template v-for="(tok, ti) in ansiOf(line).tokens" :key="ti">
+                  <a
+                    v-if="tok.url"
+                    :href="tok.url"
+                    class="log-link"
+                    :style="tok.style"
+                    :title="`在默认浏览器中打开 ${tok.url}`"
+                    @click.stop.prevent="openBrowserUrl(tok.url)"
+                  >{{ tok.text }}</a>
+                  <span v-else-if="tok.style" :style="tok.style">{{ tok.text }}</span>
+                  <template v-else>{{ tok.text }}</template>
+                </template>
+              </template>
+              <template v-else>{{ ansiOf(line).plain }}</template>
+            </span>
+          </div>
+        </template>
 
         <div v-if="!lines || lines.length === 0" class="empty-state">
           <Terminal />
@@ -363,6 +667,15 @@ function onClear() {
         <span class="footer-item" :class="{ 'text-accent': !paused }">{{ paused ? '滚屏暂停' : '实时滚屏' }}</span>
       </div>
     </footer>
+
+    <!-- 右键上下文菜单 -->
+    <ContextMenu
+      v-if="contextMenu.visible"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :items="contextMenu.items"
+      @close="contextMenu.visible = false"
+    />
   </section>
 </template>
 

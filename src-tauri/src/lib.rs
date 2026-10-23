@@ -725,6 +725,29 @@ fn open_terminal(dir: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 用系统默认浏览器打开指定 URL (降级保障通道)
+#[tauri::command]
+fn open_browser(url: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = std::process::Command::new("cmd")
+            .raw_arg(format!("/c start \"\" \"{}\"", url))
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// 枚举系统已安装字体(GDI EnumFontFamiliesExW,DEFAULT_CHARSET 去重排序)。
 /// 字体选择框的数据源:Windows 装了什么,这里就能列出什么(跳过 @ 开头的竖排变体)。
 #[tauri::command]
@@ -748,11 +771,14 @@ fn list_fonts() -> Vec<String> {
                 if lf.is_null() {
                     return 1;
                 }
-                // 回调第一个参数才指向 ENUMLOGFONTEXW;第二个是 TEXTMETRIC/NEWTEXTMETRIC,
-                // 读它的 elfFullName 是越界访问(表现为字体名乱码)。
-                // 取字体族名 lfFaceName(CSS font-family 需要的正是族名,而非全名)。
+                // 回调第一个参数指向 ENUMLOGFONTEXW。
+                // Windows GDI 的 LOGFONTW.lfFaceName 只有 32 字节 wchar 缓冲区 (LF_FACESIZE = 32)，
+                // 导致超长字体族名在 31 字符处被硬截断 (例如 IoskeleyMonoNL Nerd Font Mono ExtraBold
+                // 会被截断为 IoskeleyMonoNL Nerd Font Mono E，Bahnschrift SemiBold SemiCondensed 截为 ...SemiConden)。
+                // 而 ENUMLOGFONTEXW.elfFullName 拥有 64 字节缓冲区 (LF_FULLFACESIZE = 64)。
+                // 当 face_name 达到 31 字符上限且 full_name 更完整时，采用真实的完整名称，避免数据源截断。
                 let elf = &*(lf as *const ENUMLOGFONTEXW);
-                let name: String = String::from_utf16_lossy(
+                let face_name: String = String::from_utf16_lossy(
                     elf.elfLogFont
                         .lfFaceName
                         .iter()
@@ -761,6 +787,25 @@ fn list_fonts() -> Vec<String> {
                         .collect::<Vec<u16>>()
                         .as_slice(),
                 );
+                let full_name: String = String::from_utf16_lossy(
+                    elf.elfFullName
+                        .iter()
+                        .take_while(|&&c| c != 0)
+                        .copied()
+                        .collect::<Vec<u16>>()
+                        .as_slice(),
+                );
+
+                let name = if face_name.chars().count() >= 31
+                    && !full_name.is_empty()
+                    && (full_name.starts_with(&face_name)
+                        || full_name.to_lowercase().starts_with(&face_name.to_lowercase()))
+                {
+                    full_name
+                } else {
+                    face_name
+                };
+
                 if !name.trim().is_empty() && !name.starts_with('@') {
                     let set = &mut *(l_param.0 as *mut BTreeSet<String>);
                     set.insert(name);
@@ -952,7 +997,24 @@ async fn start_process(
         }
     }
 
-    // 3. 自定义环境变量覆盖
+    // 强制主流 CLI 工具启用 ANSI 彩色输出(即便作为子进程管道重定向)
+    command.env("FORCE_COLOR", "1");
+    command.env("CLICOLOR_FORCE", "1");
+    command.env("TERM", "xterm-256color");
+    command.env("COLORTERM", "truecolor");
+    command.env("SPRING_OUTPUT_ANSI_ENABLED", "ALWAYS");
+
+    // 跨 WSL 传递终端色彩环境变量
+    let wslenv = std::env::var("WSLENV").unwrap_or_default();
+    let forward_vars = "TERM/u:COLORTERM/u:FORCE_COLOR/u:CLICOLOR_FORCE/u";
+    let new_wslenv = if wslenv.is_empty() {
+        forward_vars.to_string()
+    } else {
+        format!("{wslenv}:{forward_vars}")
+    };
+    command.env("WSLENV", new_wslenv);
+
+    // 3. 自定义环境变量覆盖 (允许用户配置覆盖默认行为)
     for (k, v) in &req.env {
         command.env(k, v);
     }
@@ -1364,8 +1426,8 @@ mod tests {
     fn list_fonts_diagnostic() {
         let fonts = list_fonts();
         println!("font count = {}", fonts.len());
-        for name in fonts.iter().take(25) {
-            println!("font: {:?}", name);
+        for name in fonts.iter().filter(|f| f.contains("Ioskeley") || f.contains("Bahnschrift")) {
+            println!("verified font: {:?}", name);
         }
     }
 }
@@ -1495,6 +1557,7 @@ pub fn run() {
             stop_all_processes,
             list_running,
             open_terminal,
+            open_browser,
             list_fonts,
             send_input
         ])

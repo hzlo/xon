@@ -10,7 +10,7 @@ import FontPicker from "./FontPicker.vue";
 const props = defineProps({
   /** @type {import("api.js").AppSettings} */
   initial: { type: Object, required: true },
-  version: { type: String, default: "0.1.8" },
+  version: { type: String, default: "0.1.9" },
 });
 const emit = defineEmits(["submit", "cancel", "show-update"]);
 
@@ -141,14 +141,29 @@ function submit() {
           </div>
         </div>
 
-        <div class="field">
-          <label for="set-ui-font">界面字体</label>
-          <FontPicker
-            id="set-ui-font"
-            v-model="form.uiFont"
-            :fonts="systemFonts"
-            placeholder="默认(IBM Plex Sans)"
-          />
+        <div class="field-row">
+          <div class="field">
+            <label for="set-ui-font">界面字体</label>
+            <FontPicker
+              id="set-ui-font"
+              v-model="form.uiFont"
+              :fonts="systemFonts"
+              placeholder="默认(IBM Plex Sans)"
+            />
+          </div>
+          <div class="field field-narrow">
+            <label for="set-ui-size">界面字号(px)</label>
+            <input
+              id="set-ui-size"
+              v-model.number="form.uiFontSize"
+              class="input"
+              type="number"
+              min="11"
+              max="18"
+              step="1"
+              autocomplete="off"
+            />
+          </div>
         </div>
 
         <div class="field-row">
@@ -169,19 +184,6 @@ function submit() {
               class="input"
               type="number"
               min="10"
-              max="18"
-              step="1"
-              autocomplete="off"
-            />
-          </div>
-          <div class="field field-narrow">
-            <label for="set-ui-size">界面字号(px)</label>
-            <input
-              id="set-ui-size"
-              v-model.number="form.uiFontSize"
-              class="input"
-              type="number"
-              min="11"
               max="18"
               step="1"
               autocomplete="off"
@@ -264,7 +266,7 @@ function submit() {
 .field-row {
   display: flex;
   gap: var(--space-lg);
-  align-items: flex-end;
+  align-items: flex-start;
 }
 .field-row .field {
   flex: 1;

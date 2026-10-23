@@ -7,7 +7,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as dialogOpen, save as dialogSave } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 
 /** 是否运行在 Tauri WebView 内 */
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -200,7 +200,14 @@ const tauriImpl = {
     }),
   openTerminal: (dir) => invoke("open_terminal", { dir }),
   openDirInExplorer: (dir) => openPath(dir),
-  openBrowserUrl: (url) => openPath(url).catch(() => window.open(url, "_blank")),
+  openBrowserUrl: async (url) => {
+    try {
+      await openUrl(url);
+    } catch (err) {
+      console.warn("openUrl 失败，降级调用 open_browser:", err);
+      await invoke("open_browser", { url }).catch(() => window.open(url, "_blank"));
+    }
+  },
   listFonts: () => invoke("list_fonts"),
   onProcLog: (cb) => listen("proc:log", (e) => cb(e.payload)),
   onProcExit: (cb) => listen("proc:exit", (e) => cb(e.payload)),

@@ -445,26 +445,63 @@ button {
 
 .log-viewer {
   background: var(--color-background);
-  font: 400 var(--log-font-size, 12px)/1.6 var(--font-mono);
-  padding: var(--space-md) var(--space-lg);
+  font: 400 var(--log-font-size, 12px)/1.55 var(--font-mono);
+  padding: var(--space-sm) var(--space-md);
   user-select: text;
   cursor: text;
   overflow: auto;
+  font-feature-settings: "liga" 1, "calt" 1, "zero" 1;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+.log-viewer ::selection {
+  background: rgba(136, 192, 208, 0.28);
+  color: inherit;
+}
+
 .log-line {
   display: flex;
   gap: var(--space-md);
   white-space: pre-wrap;
   word-break: break-all;
   border-radius: var(--radius-sm);
+  padding: 1px 8px;
+  border-left: 2px solid transparent;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
 }
 .log-line:hover {
   background: var(--overlay-hover);
 }
+.log-line.is-error {
+  background: rgba(191, 97, 106, 0.08);
+  border-left-color: rgba(191, 97, 106, 0.7);
+}
+.log-line.is-error:hover {
+  background: rgba(191, 97, 106, 0.15);
+}
+.log-line.is-warning {
+  background: rgba(235, 203, 139, 0.05);
+  border-left-color: rgba(235, 203, 139, 0.6);
+}
+.log-line.is-warning:hover {
+  background: rgba(235, 203, 139, 0.1);
+}
+
 .log-ts {
   color: var(--color-muted-foreground);
   flex: none;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.38;
+  transition: opacity var(--dur-fast) var(--ease);
+  min-width: 5.5ch;
 }
+.log-line:hover .log-ts {
+  opacity: 0.85;
+}
+
 .log-info {
   color: var(--color-foreground);
 }
@@ -480,6 +517,83 @@ button {
 .log-sys {
   color: var(--color-muted-foreground);
   font-style: italic;
+}
+
+.log-link {
+  color: var(--color-accent, #88C0D0);
+  text-decoration: underline;
+  text-decoration-color: rgba(136, 192, 208, 0.55);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease), text-decoration-color var(--dur-fast) var(--ease), text-shadow var(--dur-fast) var(--ease);
+}
+.log-link:hover {
+  color: #8FBCBB;
+  text-decoration-color: #88C0D0;
+  text-shadow: 0 0 8px rgba(136, 192, 208, 0.4);
+}
+
+/* 系统事件分割线 (进程启动/停止/重启/异常) */
+.log-sys-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin: 10px 0;
+  user-select: none;
+  padding: 0 4px;
+}
+.sys-dash {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+  opacity: 0.35;
+}
+.sys-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px;
+  border-radius: 9999px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  font: 500 0.77rem/1.2 var(--font-mono);
+  color: var(--color-muted-foreground);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: all var(--dur-fast) var(--ease);
+}
+.sys-badge:hover {
+  border-color: var(--color-accent);
+  color: var(--color-foreground);
+}
+.sys-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-muted-foreground);
+  flex: none;
+}
+.log-sys-divider.is-start .sys-dot {
+  background: var(--color-success, #A3BE8C);
+  box-shadow: 0 0 5px rgba(163, 190, 140, 0.6);
+}
+.log-sys-divider.is-error .sys-dot {
+  background: var(--color-destructive, #BF616A);
+  box-shadow: 0 0 5px rgba(191, 97, 106, 0.6);
+}
+.log-sys-divider.is-stop .sys-dot {
+  background: var(--color-warning, #EBCB8B);
+}
+.log-sys-divider.is-info .sys-dot {
+  background: var(--color-accent, #88C0D0);
+}
+.sys-ts {
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.73rem;
+}
+.sys-text {
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 /* ------------------------------------------------------------- 空状态 */

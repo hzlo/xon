@@ -7,9 +7,9 @@ name: Release XON
   workflow_dispatch:
     inputs:
       tag:
-        description: '发布版本标签 (例如 v0.1.8)'
+        description: '发布版本标签 (例如 v0.1.9)'
         required: false
-        default: 'v0.1.8'
+        default: 'v0.1.9'
 
 jobs:
   release:
@@ -25,13 +25,13 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $tag = "${{ github.ref_name }}"
-          if ("${{ github.ref_type }}" -ne "tag" -and "${{ inputs.tag }}" -ne "") {
-            $tag = "${{ inputs.tag }}"
-          }
-          if ($tag -eq "main" -or $tag -eq "") {
-            $tag = "v0.1.8"
-          }
+            $tag = "${{ github.ref_name }}"
+            if ("${{ github.ref_type }}" -ne "tag" -and "${{ inputs.tag }}" -ne "") {
+              $tag = "${{ inputs.tag }}"
+            }
+            if ($tag -eq "main" -or $tag -eq "") {
+              $tag = "v0.1.9"
+            }
           Write-Output "tag=$tag" >> $env:GITHUB_OUTPUT
           Write-Host "Releasing version: $tag"
 
