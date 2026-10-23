@@ -12,12 +12,14 @@ import {
   Play,
   Plus,
   RotateCw,
+  Server,
   Square,
   SquareTerminal,
   Terminal,
   Trash2,
 } from "lucide-vue-next";
 import {
+  addInfraService,
   cleanCmdSnippet,
   clearLog,
   commandKey,
@@ -198,6 +200,33 @@ async function openIn(fn) {
   }
 }
 
+function convertProjectToInfra(project) {
+  confirmAction({
+    title: "转换为基础设施服务",
+    message: `确定要将项目「${project.name}」转换为底座基础设施服务吗? 将自动合并提取启动与关机命令。`,
+    confirmText: "转换",
+    onConfirm: () => {
+      const cmds = project.commands ?? [];
+      const startCmd = cmds.find((c) => /启动|start|run|up/i.test(c.name)) || cmds[0];
+      const stopCmd =
+        cmds.find((c) => /关机|停止|stop|down|shutdown/i.test(c.name)) ||
+        cmds.find((c) => /shutdown|stop/i.test(c.cmd));
+
+      addInfraService({
+        name: project.name,
+        cmd: startCmd?.cmd || "",
+        stopCmd: stopCmd?.cmd || startCmd?.stopCmd || "",
+        shell: startCmd?.shell || "cmd",
+        cwd: project.dir || startCmd?.cwd || "",
+        env: startCmd?.env || {},
+        autoStart: false,
+      });
+      removeProject(project);
+      notify(`已将「${project.name}」转换为基础设施服务并置底`);
+    },
+  });
+}
+
 function openProjectMenu(e) {
   const items = [
     {
@@ -243,6 +272,12 @@ function openProjectMenu(e) {
       label: "编辑项目",
       icon: Pencil,
       action: () => handlers.edit({ kind: "project", mode: "edit", project: props.project }),
+    },
+    { divider: true },
+    {
+      label: "转换为基础设施服务",
+      icon: Server,
+      action: () => convertProjectToInfra(props.project),
     },
     { divider: true },
     {

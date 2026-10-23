@@ -12,15 +12,16 @@ import { openPath } from "@tauri-apps/plugin-opener";
 /** 是否运行在 Tauri WebView 内 */
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
-/** @typedef {{version: number, groups: Group[], projects: Project[], scenarios: Scenario[], settings: AppSettings}} AppConfig */
+/** @typedef {{version: number, groups: Group[], projects: Project[], scenarios: Scenario[], settings: AppSettings, services?: InfraService[]}} AppConfig */
 /** @typedef {{id: string, name: string, collapsed?: boolean, groups?: Group[], projects: Project[]}} Group */
 /** @typedef {{id: string, name: string, dir: string, commands: CommandSpec[]}} Project */
-/** @typedef {{id: string, name: string, cmd: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>}} CommandSpec */
+/** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>}} CommandSpec */
+/** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>, autoStart?: boolean}} InfraService */
 /** @typedef {{id: string, name: string, items: ScenarioItem[]}} Scenario */
 /** @typedef {{projectId: string, commandId: string, delaySeconds?: number}} ScenarioItem */
 /** @typedef {{theme: 'dark'|'light', accent: string, uiFont: string, logFont: string, logFontSize: number, uiFontSize: number, closeAction: 'minimize'|'exit'}} AppSettings */
 /** @typedef {{pid: number, projectId: string, commandId: string, commandName: string, startedAtMs: number}} RunningInfo */
-/** @typedef {{pid: number, projectId: string, commandId: string, commandName: string, cmd: string, shell?: string, cwd: string, env: Record<string, string>}} StartRequest */
+/** @typedef {{pid: number, projectId: string, commandId: string, commandName: string, cmd: string, stopCmd?: string, shell?: string, cwd: string, env: Record<string, string>}} StartRequest */
 /** @typedef {{pid: number, startedAtMs: number}} StartInfo */
 /** @typedef {{pid: number, stream: 'out'|'err', ts: number, lines: string[]}} LogChunk */
 /** @typedef {{pid: number, code: number|null, durationMs: number}} ProcExit */

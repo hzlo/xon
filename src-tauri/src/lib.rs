@@ -65,6 +65,9 @@ pub struct AppConfig {
     pub scenarios: Vec<Scenario>,
     #[serde(default)]
     pub settings: AppSettings,
+    /// 基础设施与运行时服务(如 WSL, Docker, Redis 等)
+    #[serde(default)]
+    pub services: Vec<InfraService>,
 }
 
 fn default_version() -> u32 {
@@ -155,6 +158,7 @@ impl Default for AppConfig {
             projects: Vec::new(),
             scenarios: Vec::new(),
             settings: AppSettings::default(),
+            services: Vec::new(),
         }
     }
 }
@@ -197,12 +201,33 @@ pub struct CommandSpec {
     pub id: String,
     pub name: String,
     pub cmd: String,
+    #[serde(default)]
+    pub stop_cmd: String,
     #[serde(default = "default_shell")]
     pub shell: String,
     #[serde(default)]
     pub cwd: String,
     #[serde(default)]
     pub env: HashMap<String, String>,
+}
+
+/// 基础设施服务(如 WSL, Docker Compose, Redis 等常驻系统服务)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InfraService {
+    pub id: String,
+    pub name: String,
+    pub cmd: String,
+    #[serde(default)]
+    pub stop_cmd: String,
+    #[serde(default = "default_shell")]
+    pub shell: String,
+    #[serde(default)]
+    pub cwd: String,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    #[serde(default)]
+    pub auto_start: bool,
 }
 
 /// 启动请求(前端 api.js 的 StartRequest)
@@ -213,6 +238,8 @@ pub struct StartRequest {
     pub command_id: String,
     pub command_name: String,
     pub cmd: String,
+    #[serde(default)]
+    pub stop_cmd: String,
     #[serde(default = "default_shell")]
     pub shell: String,
     #[serde(default)]
@@ -379,6 +406,10 @@ struct RunningProc {
     started_at_ms: u64,
     stdin: Arc<AsyncMutex<Option<ChildStdin>>>,
     job: Arc<JobObject>,
+    stop_cmd: String,
+    shell: String,
+    cwd: String,
+    env: HashMap<String, String>,
 }
 
 #[derive(Default)]
@@ -952,6 +983,10 @@ async fn start_process(
             started_at_ms,
             stdin: stdin_holder,
             job: job_holder.clone(),
+            stop_cmd: req.stop_cmd,
+            shell: req.shell,
+            cwd: req.cwd,
+            env: req.env,
         },
     );
 
@@ -981,13 +1016,48 @@ async fn start_process(
 
 #[tauri::command]
 async fn stop_process(registry: State<'_, ProcessRegistry>, pid: u32) -> Result<bool, String> {
-    let job = {
+    let proc_data = {
         let guard = registry.0.lock().unwrap();
-        guard.get(&pid).map(|p| p.job.clone())
+        guard.get(&pid).map(|p| (p.job.clone(), p.stop_cmd.clone(), p.shell.clone(), p.cwd.clone(), p.env.clone()))
     };
-    let Some(job) = job else {
+    let Some((job, stop_cmd, shell, cwd, env)) = proc_data else {
         return Ok(false);
     };
+
+    // 如果指定了自定义停止命令, 优先执行析构指令(如 wsl --shutdown / docker compose down)
+    if !stop_cmd.trim().is_empty() {
+        let mut stop_command = if shell.eq_ignore_ascii_case("powershell") {
+            let mut c = Command::new("powershell");
+            c.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
+                .raw_arg(&stop_cmd);
+            c
+        } else {
+            let mut c = Command::new("cmd");
+            c.args(["/C"]).raw_arg(&stop_cmd);
+            c
+        };
+        stop_command.creation_flags(CREATE_NO_WINDOW);
+        if !cwd.is_empty() {
+            let cwd_path = Path::new(&cwd);
+            if cwd_path.is_dir() {
+                stop_command.current_dir(cwd_path);
+            }
+        }
+        for (k, v) in env {
+            stop_command.env(k, v);
+        }
+        // 最多等待 5 秒执行停止命令
+        let _ = timeout(Duration::from_secs(5), stop_command.output()).await;
+
+        // 等待原进程树自然排空(最多 3 秒)
+        let drain_deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < drain_deadline {
+            if job.active_processes() == 0 {
+                return Ok(true);
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
 
     // 1. 内核级 TerminateJobObject: 原子终止整棵作业进程树(含所有深层后代进程)
     job.terminate(1)?;
@@ -1360,10 +1430,44 @@ fn harden_webview(webview: tauri::webview::PlatformWebview) {
 /// 退出前停掉所有运行中的进程树(同步:原子调用内核 TerminateJobObject)
 fn stop_all_sync(app: &AppHandle) {
     let registry = app.state::<ProcessRegistry>();
-    let jobs: Vec<Arc<JobObject>> = {
+    let (jobs, stop_cmds): (
+        Vec<Arc<JobObject>>,
+        Vec<(String, String, String, HashMap<String, String>)>,
+    ) = {
         let guard = registry.0.lock().unwrap();
-        guard.values().map(|p| p.job.clone()).collect()
+        let jobs = guard.values().map(|p| p.job.clone()).collect();
+        let stop_cmds = guard
+            .values()
+            .filter(|p| !p.stop_cmd.trim().is_empty())
+            .map(|p| (p.stop_cmd.clone(), p.shell.clone(), p.cwd.clone(), p.env.clone()))
+            .collect();
+        (jobs, stop_cmds)
     };
+
+    // 退出前若有配置 stop_cmd 的进程, 先同步触发析构(如 wsl --shutdown)
+    for (stop_cmd, shell, cwd, env) in stop_cmds {
+        let mut c = if shell.eq_ignore_ascii_case("powershell") {
+            let mut sc = StdCommand::new("powershell");
+            sc.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &stop_cmd]);
+            sc
+        } else {
+            let mut sc = StdCommand::new("cmd");
+            sc.args(["/C", &stop_cmd]);
+            sc
+        };
+        c.creation_flags(CREATE_NO_WINDOW);
+        if !cwd.is_empty() {
+            let p = Path::new(&cwd);
+            if p.is_dir() {
+                c.current_dir(p);
+            }
+        }
+        for (k, v) in env {
+            c.env(k, v);
+        }
+        let _ = c.status();
+    }
+
     for job in jobs {
         let _ = job.terminate(1);
     }

@@ -1,19 +1,39 @@
 <script setup>
-// 左侧监视面板外壳(两级架构:项目 → 命令/服务): 搜索过滤 + 状态药丸 + 快捷全局折叠 + 新建项目 + 右键全能菜单 + 底部状态
+// 左侧监视面板外壳(两级架构:项目 → 命令/服务 + 顶部基础设施底座专区): 搜索过滤 + 状态药丸 + 快捷全局折叠 + 新建项目 + 右键全能菜单 + 底部状态
 import { computed, provide, ref } from "vue";
 import {
+  ChevronDown,
+  ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  Copy,
+  Edit3,
   Folder,
+  MoreHorizontal,
+  Play,
   Plus,
+  RotateCw,
   Search,
+  Server,
+  Square,
+  Trash2,
   X,
 } from "lucide-vue-next";
 import {
+  cleanCmdSnippet,
   collapseAll,
+  commandKey,
+  confirmAction,
+  duplicateInfraService,
   expandAll,
+  formatDuration,
   isTaskCommand,
+  notify,
+  removeInfraService,
+  restartInfraService,
   runningOf,
+  startInfraService,
+  stopInfraService,
   store,
 } from "../stores/app.js";
 import ContextMenu from "./ContextMenu.vue";
@@ -37,6 +57,127 @@ function openContextMenu(e, items) {
   };
 }
 provide("openContextMenu", openContextMenu);
+
+// ---- 基础设施展开与管理 ----
+const isInfraExpanded = ref(true);
+
+const infraRunningCount = computed(() => {
+  let count = 0;
+  for (const s of store.config.services ?? []) {
+    if (runningOf(commandKey("__infra__", s.id))) count++;
+  }
+  return count;
+});
+
+function isInfraError(service) {
+  const key = commandKey("__infra__", service.id);
+  const exit = store.lastExitByCommand.get(key);
+  return exit && exit.code != null && exit.code !== 0 && !runningOf(key);
+}
+
+function infraDuration(service) {
+  const p = runningOf(commandKey("__infra__", service.id));
+  if (!p) return 0;
+  return Math.max(0, store.now.value - p.startedAtMs);
+}
+
+function infraStatusText(service) {
+  const key = commandKey("__infra__", service.id);
+  const p = runningOf(key);
+  if (p) return `运行中 (PID ${p.pid})`;
+  const exit = store.lastExitByCommand.get(key);
+  if (exit && exit.code != null) return `已退出 (码 ${exit.code})`;
+  return "未运行";
+}
+
+function selectInfra(service) {
+  store.selectedKey.value = commandKey("__infra__", service.id);
+}
+
+function openInfraMenu(e, service) {
+  const key = commandKey("__infra__", service.id);
+  const isRunning = runningOf(key) != null;
+  const items = [
+    isRunning
+      ? {
+          label: "停止服务",
+          icon: Square,
+          action: () => stopInfraService(service),
+        }
+      : {
+          label: "启动服务",
+          icon: Play,
+          action: () => startInfraService(service),
+        },
+    ...(isRunning
+      ? [
+          {
+            label: "重启服务",
+            icon: RotateCw,
+            action: () => restartInfraService(service),
+          },
+        ]
+      : []),
+    { type: "divider" },
+    {
+      label: "编辑服务",
+      icon: Edit3,
+      action: () => emit("edit", { kind: "infra", mode: "edit", service }),
+    },
+    {
+      label: "复制启动命令",
+      icon: Copy,
+      action: async () => {
+        try {
+          await navigator.clipboard.writeText(service.cmd);
+          notify("已复制启动命令到剪贴板");
+        } catch {
+          notify("复制失败");
+        }
+      },
+    },
+    {
+      label: "克隆服务",
+      icon: Copy,
+      action: () => duplicateInfraService(service),
+    },
+    { type: "divider" },
+    {
+      label: "删除服务",
+      icon: Trash2,
+      danger: true,
+      action: () => {
+        confirmAction({
+          title: "删除基础设施服务",
+          message: `确定要删除基础设施服务「${service.name}」吗?`,
+          confirmText: "删除",
+          danger: true,
+          onConfirm: () => removeInfraService(service),
+        });
+      },
+    },
+  ];
+  openContextMenu(e, items);
+}
+
+function onScrollBgContextMenu(e) {
+  if (e.target.closest(".project-node") || e.target.closest(".infra-row") || e.target.closest(".infra-header")) {
+    return;
+  }
+  const items = [
+    {
+      label: "新建项目",
+      icon: Plus,
+      action: () => emit("create", { kind: "project", mode: "create" }),
+    },
+    {
+      label: "新建基础设施服务",
+      icon: Server,
+      action: () => emit("create", { kind: "infra", mode: "create" }),
+    },
+  ];
+  openContextMenu(e, items);
+}
 
 // ---- 搜索与状态过滤联动 ----
 const searchFilter = ref("");
@@ -64,7 +205,7 @@ function toggleExpandCollapseAll() {
   }
 }
 
-const isEmpty = () => (store.config.projects?.length ?? 0) === 0;
+const isEmpty = () => (store.config.projects?.length ?? 0) === 0 && (store.config.services?.length ?? 0) === 0;
 
 const totalCommandCount = computed(() => {
   let count = 0;
@@ -115,8 +256,28 @@ function matchesCmd(project, command, q, st) {
 
 const isFiltering = computed(() => !!searchFilter.value.trim() || statusFilter.value !== "all");
 
+const filteredInfraServices = computed(() => {
+  const list = store.config.services ?? [];
+  if (!isFiltering.value) return list;
+  const q = searchFilter.value.trim().toLowerCase();
+  const st = statusFilter.value;
+  return list.filter((s) => {
+    const key = commandKey("__infra__", s.id);
+    const isRunning = runningOf(key) != null;
+    const isErr = isInfraError(s);
+    if (st === "running" && !isRunning) return false;
+    if (st === "error" && !isErr) return false;
+    if (st === "task") return false;
+    if (q) {
+      return s.name.toLowerCase().includes(q) || s.cmd.toLowerCase().includes(q);
+    }
+    return true;
+  });
+});
+
 const hasMatches = computed(() => {
   if (!isFiltering.value) return true;
+  if (filteredInfraServices.value.length > 0) return true;
   const q = searchFilter.value.trim().toLowerCase();
   const st = statusFilter.value;
 
@@ -211,16 +372,19 @@ const hasMatches = computed(() => {
       </button>
     </div>
 
-    <!-- 树主体滚动区: 纯粹清晰的两级项目树 -->
-    <div class="sidebar-scroll">
+    <!-- 树主体滚动区: 纯粹清晰的两级项目树 + 顶部基础设施专区 -->
+    <div class="sidebar-scroll" @contextmenu.prevent="onScrollBgContextMenu">
       <!-- 没有任何配置的纯空状态 -->
       <div v-if="isEmpty()" class="empty-state sidebar-empty">
         <Folder />
-        <p>还没有项目</p>
-        <p class="hint">点击右上角 + 新建项目开始使用</p>
+        <p>还没有项目或服务</p>
+        <p class="hint">点击新建项目或基础设施服务开始使用</p>
         <div class="empty-actions">
           <button class="btn-secondary" @click="emit('create', { kind: 'project', mode: 'create' })">
             <Plus />新建项目
+          </button>
+          <button class="btn-secondary" @click="emit('create', { kind: 'infra', mode: 'create' })">
+            <Server />新建基础设施
           </button>
         </div>
       </div>
@@ -242,9 +406,111 @@ const hasMatches = computed(() => {
       </div>
     </div>
 
+    <!-- 基础设施 / 运行底座专区 (置底独立区) -->
+    <div v-if="!isEmpty()" class="infra-section">
+      <div class="infra-header" @click="isInfraExpanded = !isInfraExpanded">
+        <div class="infra-header-left">
+          <span class="tree-arrow">
+            <ChevronDown v-if="isInfraExpanded" class="chevron" />
+            <ChevronRight v-else class="chevron" />
+          </span>
+          <Server class="row-icon" />
+          <span class="infra-header-title">基础设施</span>
+          <span class="infra-header-count">({{ store.config.services?.length ?? 0 }})</span>
+          <span v-if="infraRunningCount > 0" class="infra-running-tag">
+            <span class="tag-dot"></span>
+            {{ infraRunningCount }}
+          </span>
+        </div>
+        <div class="infra-header-actions" @click.stop>
+          <button
+            class="btn-ghost icon-btn add-btn"
+            title="新建基础设施服务 (如 WSL / Docker / Redis)"
+            @click="emit('create', { kind: 'infra', mode: 'create' })"
+          >
+            <Plus />
+          </button>
+        </div>
+      </div>
+
+      <div v-show="isInfraExpanded" class="infra-list">
+        <div
+          v-for="service in filteredInfraServices"
+          :key="service.id"
+          class="infra-row"
+          :class="{
+            'is-selected': store.selectedKey.value === commandKey('__infra__', service.id),
+            'is-running': runningOf(commandKey('__infra__', service.id)) != null,
+          }"
+          @click="selectInfra(service)"
+          @contextmenu.prevent.stop="openInfraMenu($event, service)"
+        >
+          <span class="status-dot">
+            <span
+              class="dot-inner"
+              :class="{
+                running: runningOf(commandKey('__infra__', service.id)) != null,
+                error: isInfraError(service),
+              }"
+              :title="infraStatusText(service)"
+            ></span>
+          </span>
+
+          <span class="infra-name" :title="service.name">{{ service.name }}</span>
+
+          <span class="infra-cmd" :title="service.cmd">{{ cleanCmdSnippet(service.cmd) }}</span>
+
+          <span v-if="runningOf(commandKey('__infra__', service.id))" class="infra-uptime">
+            {{ formatDuration(infraDuration(service)) }}
+          </span>
+
+          <span class="infra-actions" @click.stop>
+            <button
+              v-if="!runningOf(commandKey('__infra__', service.id))"
+              class="btn-ghost icon-btn is-accent"
+              title="启动基础设施服务"
+              @click.stop="startInfraService(service)"
+            >
+              <Play />
+            </button>
+            <template v-else>
+              <button
+                class="btn-ghost icon-btn is-danger"
+                :title="service.stopCmd ? `停止 (将执行: ${service.stopCmd})` : '停止'"
+                @click.stop="stopInfraService(service)"
+              >
+                <Square />
+              </button>
+              <button
+                class="btn-ghost icon-btn"
+                title="重启"
+                @click.stop="restartInfraService(service)"
+              >
+                <RotateCw />
+              </button>
+            </template>
+            <button
+              class="btn-ghost icon-btn"
+              title="更多操作"
+              @click.stop="openInfraMenu($event, service)"
+            >
+              <MoreHorizontal />
+            </button>
+          </span>
+        </div>
+
+        <div v-if="(store.config.services ?? []).length === 0" class="inline-empty">
+          暂无基础设施服务, 点击右上角 + 添加
+        </div>
+      </div>
+    </div>
+
     <!-- 底部状态条 -->
     <footer class="sidebar-footer">
       <span class="footer-count">
+        <template v-if="(store.config.services ?? []).length > 0">
+          {{ store.config.services.length }} 设施 · 
+        </template>
         {{ store.config.projects?.length ?? 0 }} 项目 · {{ totalCommandCount }} 命令
         <span v-if="totalTaskCount > 0" class="sub-count">({{ totalTaskCount }} 任务)</span>
       </span>

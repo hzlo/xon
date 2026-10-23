@@ -1,12 +1,12 @@
 <script setup>
-// 新建/编辑 分组、项目、命令 共用一个对话框;kind 决定渲染哪些字段。
+// 新建/编辑 分组、项目、命令、基础设施服务 共用一个对话框;kind 决定渲染哪些字段。
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { FolderOpen } from "lucide-vue-next";
 import { pickFolder } from "../api.js";
 import { isTaskCommand } from "../stores/app.js";
 
 const props = defineProps({
-  kind: { type: String, required: true }, // group | project | command
+  kind: { type: String, required: true }, // group | project | command | infra
   title: { type: String, required: true },
   /** 编辑时的初始值 */
   initial: { type: Object, default: () => ({}) },
@@ -19,9 +19,11 @@ const form = reactive({
   name: props.initial.name ?? "",
   dir: props.initial.dir ?? "",
   cmd: props.initial.cmd ?? "",
+  stopCmd: props.initial.stopCmd ?? "",
   shell: props.initial.shell ?? "cmd",
   cwd: props.initial.cwd ?? "",
   kindType: props.initial.kind ?? (props.initial.cmd ? (isTaskCommand(props.initial) ? "task" : "service") : "service"),
+  autoStart: props.initial.autoStart ?? false,
   envText: Object.entries(props.initial.env ?? {})
     .map(([k, v]) => `${k}=${v}`)
     .join("\n"),
@@ -50,7 +52,9 @@ async function browseDir(field) {
 
 function submit() {
   errors.name = form.name.trim() ? "" : "名称必填";
-  if (props.kind === "command") errors.cmd = form.cmd.trim() ? "" : "命令必填";
+  if (props.kind === "command" || props.kind === "infra") {
+    errors.cmd = form.cmd.trim() ? "" : "启动命令必填";
+  }
   if (errors.name || errors.cmd) return;
 
   const env = {};
@@ -65,9 +69,11 @@ function submit() {
     name: form.name.trim(),
     dir: form.dir.trim(),
     cmd: form.cmd.trim(),
+    stopCmd: form.stopCmd.trim(),
     shell: form.shell || "cmd",
     cwd: form.cwd.trim(),
     kind: form.kindType,
+    autoStart: !!form.autoStart,
     env,
   });
 }
@@ -88,7 +94,7 @@ function submit() {
             class="input"
             type="text"
             :aria-invalid="errors.name ? 'true' : undefined"
-            placeholder="如:前端服务"
+            :placeholder="kind === 'infra' ? '如: WSL 或 Docker' : '如: 前端服务'"
           />
           <span v-if="errors.name" class="field-error">{{ errors.name }}</span>
         </div>
@@ -115,6 +121,13 @@ function submit() {
           </div>
         </div>
 
+        <div v-if="kind === 'infra'" class="field">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="form.autoStart" />
+            <span>随 XON 启动时自动运行此服务</span>
+          </label>
+        </div>
+
         <div v-if="kind === 'project'" class="field">
           <label for="project-dir">项目目录</label>
           <div class="dir-row">
@@ -125,18 +138,34 @@ function submit() {
           </div>
         </div>
 
-        <template v-if="kind === 'command'">
+        <template v-if="kind === 'command' || kind === 'infra'">
           <div class="field">
-            <label for="command-cmd">命令</label>
+            <label for="command-cmd">启动命令</label>
             <input
               id="command-cmd"
               v-model="form.cmd"
               class="input command-input"
               type="text"
               :aria-invalid="errors.cmd ? 'true' : undefined"
-              placeholder="npm run dev"
+              :placeholder="kind === 'infra' ? '如: wsl bash -c &quot;sleep infinity&quot;' : 'npm run dev'"
             />
             <span v-if="errors.cmd" class="field-error">{{ errors.cmd }}</span>
+          </div>
+          <div class="field">
+            <label for="command-stop-cmd">
+              停止命令
+              <span class="field-hint">(可选: 停止时优先执行此命令以优雅退出/关机)</span>
+            </label>
+            <input
+              id="command-stop-cmd"
+              v-model="form.stopCmd"
+              class="input command-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              autocapitalize="off"
+              :placeholder="kind === 'infra' ? '如: wsl --shutdown 或 docker compose down' : '可选，如: nginx -s stop'"
+            />
           </div>
           <div class="field">
             <label for="command-shell">Shell</label>
@@ -153,7 +182,7 @@ function submit() {
                 v-model="form.cwd"
                 class="input"
                 type="text"
-                :placeholder="defaults.dir ? `留空则使用项目目录(${defaults.dir})` : '留空则使用项目目录'"
+                :placeholder="defaults.dir ? `留空则使用项目目录(${defaults.dir})` : '留空则使用默认目录'"
               />
               <button type="button" class="btn-secondary browse-btn" aria-label="浏览选择工作目录" @click="browseDir('cwd')">
                 <FolderOpen />浏览…
@@ -231,5 +260,24 @@ function submit() {
   color: var(--color-foreground);
   font-weight: 500;
   box-shadow: var(--shadow-sm);
+}
+.field-hint {
+  font-size: 0.8rem;
+  font-weight: normal;
+  color: var(--color-muted-foreground);
+  margin-left: 6px;
+}
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 0.875rem;
+  color: var(--color-foreground);
+  cursor: pointer;
+  user-select: none;
+}
+.checkbox-label input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--color-accent);
 }
 </style>
