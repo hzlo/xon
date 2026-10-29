@@ -1689,13 +1689,12 @@ fn stop_all_sync(app: &AppHandle) {
             // 停止脚本自身也放进独立 Job:超时后能连同它派生的子进程一起回收
             let stop_job = JobObject::create_with_kill_on_close().ok();
             let mut managed = false;
-            let mut ready = false;
-            if let Some(pid) = child.id() {
-                if let Some(ref job) = stop_job {
-                    managed = job.assign_process(pid).is_ok();
-                }
-                ready = resume_process_threads(pid).is_ok();
+            // std::process::Child::id() 直接返回 u32(不同于 tokio 的 Option)
+            let pid = child.id();
+            if let Some(ref job) = stop_job {
+                managed = job.assign_process(pid).is_ok();
             }
+            let ready = resume_process_threads(pid).is_ok();
             if !ready {
                 let _ = child.kill();
                 let _ = child.wait();
