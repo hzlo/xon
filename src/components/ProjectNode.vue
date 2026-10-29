@@ -200,31 +200,29 @@ async function openIn(fn) {
   }
 }
 
-function convertProjectToInfra(project) {
-  confirmAction({
-    title: "转换为基础设施服务",
-    message: `确定要将项目「${project.name}」转换为底座基础设施服务吗? 将自动合并提取启动与关机命令。`,
-    confirmText: "转换",
-    onConfirm: () => {
-      const cmds = project.commands ?? [];
-      const startCmd = cmds.find((c) => /启动|start|run|up/i.test(c.name)) || cmds[0];
-      const stopCmd =
-        cmds.find((c) => /关机|停止|stop|down|shutdown/i.test(c.name)) ||
-        cmds.find((c) => /shutdown|stop/i.test(c.cmd));
+async function convertProjectToInfra(project) {
+  const ok = await confirmAction(
+    `确定要将项目「${project.name}」转换为底座基础设施服务吗? 将自动合并提取启动与关机命令。`,
+    { title: "转换为基础设施服务", danger: true },
+  );
+  if (!ok) return;
+  const cmds = project.commands ?? [];
+  const startCmd = cmds.find((c) => /启动|start|run|up/i.test(c.name)) || cmds[0];
+  const stopCmd =
+    cmds.find((c) => /关机|停止|stop|down|shutdown/i.test(c.name)) ||
+    cmds.find((c) => /shutdown|stop/i.test(c.cmd));
 
-      addInfraService({
-        name: project.name,
-        cmd: startCmd?.cmd || "",
-        stopCmd: stopCmd?.cmd || startCmd?.stopCmd || "",
-        shell: startCmd?.shell || "cmd",
-        cwd: project.dir || startCmd?.cwd || "",
-        env: startCmd?.env || {},
-        autoStart: false,
-      });
-      removeProject(project);
-      notify(`已将「${project.name}」转换为基础设施服务并置底`);
-    },
+  addInfraService({
+    name: project.name,
+    cmd: startCmd?.cmd || "",
+    stopCmd: stopCmd?.cmd || startCmd?.stopCmd || "",
+    shell: startCmd?.shell || "cmd",
+    cwd: project.dir || startCmd?.cwd || "",
+    env: startCmd?.env || {},
+    autoStart: false,
   });
+  removeProject(project);
+  notify(`已将「${project.name}」转换为基础设施服务并置底`);
 }
 
 function openProjectMenu(e) {
@@ -391,27 +389,40 @@ function onProjectDrop(e) {
 }
 
 // ---- 内部命令拖拽排序 ----
-function onCmdDragStart(e, cmdIdx) {
-  e.dataTransfer.setData("application/x-xon-cmd", String(cmdIdx));
+// 传命令 id 而不是列表下标:搜索过滤时 visibleCommands 的下标与原始数组不一致,
+// 用下标会挪错命令;带上项目 id 还能阻止跨项目误拖。
+function onCmdDragStart(e, command) {
+  e.dataTransfer.setData(
+    "application/x-xon-cmd",
+    JSON.stringify({ projectId: props.project.id, commandId: command.id }),
+  );
   e.dataTransfer.effectAllowed = "move";
 }
 
-function onCmdDragOver(e, cmdIdx) {
+function onCmdDragOver(e, command) {
   if (e.dataTransfer.types.includes("application/x-xon-cmd")) {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
-    cmdDragOverIdx.value = cmdIdx;
+    cmdDragOverIdx.value = visibleCommands.value.findIndex((c) => c.id === command.id);
   }
 }
 
-function onCmdDrop(e, cmdIdx) {
+function onCmdDrop(e, targetCommand) {
   cmdDragOverIdx.value = -1;
   const raw = e.dataTransfer.getData("application/x-xon-cmd");
-  if (raw === "") return;
-  const fromIdx = parseInt(raw, 10);
-  if (!isNaN(fromIdx)) {
-    reorderCommands(props.project, fromIdx, cmdIdx);
+  if (!raw) return;
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return;
   }
+  if (!payload || payload.projectId !== props.project.id) return;
+  const list = props.project.commands ?? [];
+  const fromIndex = list.findIndex((c) => c.id === payload.commandId);
+  const toIndex = list.findIndex((c) => c.id === targetCommand.id);
+  if (fromIndex < 0 || toIndex < 0) return;
+  reorderCommands(props.project, fromIndex, toIndex);
 }
 </script>
 
@@ -495,10 +506,10 @@ function onCmdDrop(e, cmdIdx) {
         role="button"
         tabindex="0"
         :aria-selected="isSelected(command)"
-        @dragstart.stop="onCmdDragStart($event, cmdIdx)"
-        @dragover.stop.prevent="onCmdDragOver($event, cmdIdx)"
+        @dragstart.stop="onCmdDragStart($event, command)"
+        @dragover.stop.prevent="onCmdDragOver($event, command)"
         @dragleave.stop="cmdDragOverIdx = -1"
-        @drop.stop="onCmdDrop($event, cmdIdx)"
+        @drop.stop="onCmdDrop($event, command)"
         @click="select(command)"
         @keydown.enter.prevent="select(command)"
         @keydown.space.prevent="select(command)"

@@ -81,7 +81,7 @@ function submit() {
 
 <template>
   <div class="modal-overlay">
-    <div class="modal" role="dialog" aria-modal="true" :aria-label="title" @submit.prevent="submit">
+    <div class="modal" role="dialog" aria-modal="true" :aria-label="title">
       <h2 class="modal-title">{{ title }}</h2>
 
       <form @submit.prevent="submit">

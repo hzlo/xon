@@ -31,8 +31,9 @@ function hex2(n) {
   return n.toString(16).padStart(2, "0");
 }
 
-/** xterm-256 → #rrggbb */
+/** xterm-256 → #rrggbb;非法索引(小数/越界)返回 null,不让日志内容抛出异常 */
 function color256(n) {
+  if (!Number.isInteger(n) || n < 0 || n > 255) return null;
   if (n < 16) return PALETTE[n] ?? null;
   if (n < 232) {
     const i = n - 16;
@@ -172,14 +173,86 @@ function applySgr(st, params) {
   }
 }
 
-/** '\r' 是同一行的光标回车重写:只保留最后一屏内容(与终端观感一致) */
-function collapseCarriageReturns(text) {
-  if (!text.includes("\r")) return text;
-  const parts = text.split("\r");
-  for (let i = parts.length - 1; i >= 0; i--) {
-    if (parts[i].trim() !== "") return parts[i];
+/**
+ * 处理含 '\r' 的行:按终端语义把光标移回行首后覆盖写入,
+ * 而不是丢弃整行前半段(否则 `hello world\rhi` 会变成 `hi`,纯 ANSI reset 还会吞掉正文)。
+ */
+function parseWithCarriageReturns(text) {
+  const st = newState();
+  const cells = [];
+  let cursor = 0;
+  let i = 0;
+  let styled = false;
+
+  const writeText = (chunk) => {
+    if (!chunk) return;
+    // 同一文本段样式固定,只计算一次;相邻同样式单元才能正确合并
+    const style = cssOf(st);
+    if (style) styled = true;
+    for (const ch of chunk) {
+      cells[cursor] = { ch, style };
+      cursor++;
+    }
+  };
+
+  let runStart = 0;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    if (code !== ESC && code !== 13) {
+      i++;
+      continue;
+    }
+    writeText(text.slice(runStart, i));
+    if (code === 13) {
+      cursor = 0;
+      i++;
+    } else {
+      const next = text[i + 1];
+      if (next === "[") {
+        let j = i + 2;
+        while (j < text.length) {
+          const c = text.charCodeAt(j);
+          if (c >= 0x40 && c <= 0x7e) break;
+          j++;
+        }
+        if (j < text.length) {
+          if (text[j] === "m") applySgr(st, text.slice(i + 2, j));
+          i = j + 1;
+        } else {
+          i = text.length;
+        }
+      } else if (next === "]") {
+        let j = i + 2;
+        while (j < text.length) {
+          if (text.charCodeAt(j) === 0x07) { j++; break; }
+          if (text.charCodeAt(j) === ESC && text[j + 1] === "\\") { j += 2; break; }
+          j++;
+        }
+        i = j;
+      } else if (next === "(" || next === ")") {
+        i += 3;
+      } else {
+        i += 2;
+      }
+    }
+    runStart = i;
   }
-  return "";
+  writeText(text.slice(runStart));
+
+  const segs = [];
+  let current = null;
+  for (const cell of cells) {
+    if (!cell) continue;
+    if (current && current.style === cell.style) {
+      current.text += cell.ch;
+    } else {
+      current = { text: cell.ch, style: cell.style };
+      segs.push(current);
+    }
+  }
+  if (segs.length === 0) segs.push({ text: "", style: null });
+  const plain = segs.map((s) => s.text).join("");
+  return { segs, plain, styled };
 }
 
 /**
@@ -194,7 +267,10 @@ export function parseAnsiLine(input) {
   if (raw.indexOf("\u001b") < 0 && raw.indexOf("\r") < 0) {
     return { segs: [{ text: raw, style: null }], plain: raw, styled: false };
   }
-  const text = collapseCarriageReturns(raw);
+  if (raw.includes("\r")) {
+    return parseWithCarriageReturns(raw);
+  }
+  const text = raw;
   const segs = [];
   const st = newState();
   let i = 0;

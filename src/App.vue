@@ -333,11 +333,19 @@ async function onDeleteScenario() {
 
 // ---- 导入 / 导出 ----
 async function onExport() {
-  await exportConfigToFile();
+  try {
+    if (await exportConfigToFile()) notify("配置已导出");
+  } catch (err) {
+    notify(`导出失败: ${err?.message || err}`);
+  }
 }
 
 async function onImport() {
-  await importConfigFromFile();
+  try {
+    if (await importConfigFromFile()) notify("配置已导入");
+  } catch (err) {
+    notify(`导入失败: ${err?.message || err}`);
+  }
 }
 </script>
 
@@ -536,6 +544,10 @@ async function onImport() {
       </div>
     </header>
 
+    <div v-if="store.loadError.value" class="load-error-banner" role="alert">
+      <span>配置加载失败，自动保存已禁用（原文件未被覆盖）：{{ store.loadError.value }}</span>
+    </div>
+
     <main class="workspace">
       <aside class="sidebar" :style="{ width: `${sidebarWidth}px` }" aria-label="项目分组">
         <SidebarPane @edit="openEdit" @create="openCreate" />
@@ -602,6 +614,16 @@ async function onImport() {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+.load-error-banner {
+  flex: none;
+  padding: 6px var(--space-md);
+  font-size: 0.8rem;
+  color: var(--color-destructive);
+  background: var(--color-destructive-soft-bg);
+  border-bottom: 1px solid var(--color-destructive-soft-border);
+  user-select: text;
 }
 
 .titlebar {

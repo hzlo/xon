@@ -5420,7 +5420,7 @@ dependencies = [
 
 [[package]]
 name = "xon"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "encoding_rs",
  "serde",

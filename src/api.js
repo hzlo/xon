@@ -15,7 +15,7 @@ export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in
 /** @typedef {{version: number, groups: Group[], projects: Project[], scenarios: Scenario[], settings: AppSettings, services?: InfraService[]}} AppConfig */
 /** @typedef {{id: string, name: string, collapsed?: boolean, groups?: Group[], projects: Project[]}} Group */
 /** @typedef {{id: string, name: string, dir: string, commands: CommandSpec[]}} Project */
-/** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>}} CommandSpec */
+/** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>, kind?: 'service'|'task'}} CommandSpec */
 /** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>, autoStart?: boolean}} InfraService */
 /** @typedef {{id: string, name: string, items: ScenarioItem[]}} Scenario */
 /** @typedef {{projectId: string, commandId: string, delaySeconds?: number}} ScenarioItem */

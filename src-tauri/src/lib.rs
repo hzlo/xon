@@ -37,6 +37,10 @@ use tokio::{
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// 为 shell 命令新开可见控制台
 const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+/// 创建后挂起,等挂入 Job Object 后再恢复执行
+const CREATE_SUSPENDED_FLAG: u32 = 0x0000_0004;
+/// 单行日志未换行时的最大字节数;超出后分片发射,避免 carry 无界增长
+const MAX_LOG_LINE_BYTES: usize = 1024 * 1024;
 /// 每日备份保留份数
 const BACKUP_KEEP: usize = 7;
 /// 日志批量发射周期
@@ -209,6 +213,9 @@ pub struct CommandSpec {
     pub cwd: String,
     #[serde(default)]
     pub env: HashMap<String, String>,
+    /// "service" | "task";空 = 由前端按名称/命令推断
+    #[serde(default)]
+    pub kind: String,
 }
 
 /// 基础设施服务(如 WSL, Docker Compose, Redis 等常驻系统服务)
@@ -424,6 +431,51 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// 恢复 CREATE_SUSPENDED 创建的进程:枚举其全部线程并逐个 ResumeThread。
+/// 进程刚创建时只有主线程,挂入 Job Object 后再调用,可消除"先运行、后纳管"的逃逸窗口。
+#[cfg(windows)]
+fn resume_process_threads(pid: u32) -> Result<(), String> {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    };
+    use windows::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)
+            .map_err(|e| format!("枚举线程失败: {e}"))?;
+        if snapshot.is_invalid() {
+            return Err("枚举线程失败: 无效句柄".into());
+        }
+        let mut entry = THREADENTRY32 {
+            dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+            ..Default::default()
+        };
+        let mut resumed = 0u32;
+        let mut has_entry = Thread32First(snapshot, &mut entry).is_ok();
+        while has_entry {
+            if entry.th32OwnerProcessID == pid {
+                if let Ok(thread) = OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) {
+                    let previous = ResumeThread(thread);
+                    let _ = CloseHandle(thread);
+                    if previous == u32::MAX {
+                        let _ = CloseHandle(snapshot);
+                        return Err(format!("恢复进程 {pid} 线程失败"));
+                    }
+                    resumed += 1;
+                }
+            }
+            has_entry = Thread32Next(snapshot, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snapshot);
+        if resumed == 0 {
+            Err(format!("恢复进程 {pid} 失败: 未找到线程"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
 fn data_dir() -> PathBuf {
     std::env::var("LOCALAPPDATA")
         .map(|d| PathBuf::from(d).join("xon"))
@@ -488,13 +540,20 @@ enum DecodeMode {
 struct LineDecoder {
     mode: DecodeMode,
     carry: String,
+    /// 上一次扫描换行的位置,避免每个新块都从头重扫整个 carry
+    search_from: usize,
     /// 复用的解码输出缓冲,避免每块重新分配
     scratch: String,
 }
 
 impl LineDecoder {
     fn new() -> Self {
-        Self { mode: DecodeMode::Probe(Vec::new()), carry: String::new(), scratch: String::new() }
+        Self {
+            mode: DecodeMode::Probe(Vec::new()),
+            carry: String::new(),
+            search_from: 0,
+            scratch: String::new(),
+        }
     }
 
     fn feed(&mut self, chunk: &[u8], eof: bool, out: &mut Vec<String>) {
@@ -559,14 +618,35 @@ impl LineDecoder {
         }
         self.carry.push_str(&self.scratch);
         self.split_lines(out);
+        // 长时间不换行的输出(如进度条)不能无限占用内存:超过上限就切一段发出去,
+        // 剩余部分继续拼接,前端仍能看到持续输出
+        if self.carry.len() > MAX_LOG_LINE_BYTES {
+            let mut cut = MAX_LOG_LINE_BYTES;
+            while cut > 0 && !self.carry.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            if cut > 0 {
+                let tail = self.carry.split_off(cut);
+                let head = std::mem::replace(&mut self.carry, tail);
+                out.push(head);
+                self.search_from = 0;
+            }
+        }
     }
 
     fn split_lines(&mut self, out: &mut Vec<String>) {
-        while let Some(pos) = self.carry.find('\n') {
+        loop {
+            let search_from = self.search_from.min(self.carry.len());
+            let Some(rel) = self.carry[search_from..].find('\n') else {
+                self.search_from = self.carry.len();
+                break;
+            };
+            let pos = search_from + rel;
             let rest = self.carry.split_off(pos + 1);
             let mut line = std::mem::replace(&mut self.carry, rest);
             trim_eol(&mut line);
             out.push(line);
+            self.search_from = 0;
         }
     }
 
@@ -578,6 +658,7 @@ impl LineDecoder {
                 out.push(line);
             }
         }
+        self.search_from = 0;
     }
 }
 
@@ -726,22 +807,28 @@ fn open_terminal(dir: String) -> Result<(), String> {
 }
 
 /// 用系统默认浏览器打开指定 URL (降级保障通道)
+/// 只接受 http/https,并作为独立参数交给 explorer.exe;
+/// 不经过 cmd /C start,避免 %VAR% 展开与命令拼接。
 #[tauri::command]
 fn open_browser(url: String) -> Result<(), String> {
+    let lower = url.trim().to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err("只允许打开 http/https 链接".into());
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let _ = std::process::Command::new("cmd")
-            .raw_arg(format!("/c start \"\" \"{}\"", url))
+        std::process::Command::new("explorer.exe")
+            .arg(url.trim())
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(not(windows))]
     {
-        let _ = std::process::Command::new("xdg-open")
-            .arg(&url)
+        std::process::Command::new("xdg-open")
+            .arg(url.trim())
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -970,8 +1057,9 @@ async fn start_process(
         c
     };
 
+    // 先挂起创建:进程在进入 Job Object 之前不能执行任何指令,子进程也不可能抢先逃逸
     command
-        .creation_flags(CREATE_NO_WINDOW)
+        .creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED_FLAG)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -1028,9 +1116,19 @@ async fn start_process(
     let pid = child.id().ok_or("启动失败:未获得进程 ID")?;
     let started_at_ms = now_ms();
 
-    // 立即挂入 Job Object: 从诞生微秒起纳入内核监管, 子孙进程自动归入
-    job.assign_process(pid)
-        .map_err(|e| format!("进程监管挂载失败: {e}"))?;
+    // 进程仍处于挂起状态,先纳管再放行,确保从第一条指令起就受 Job 约束
+    if let Err(e) = job.assign_process(pid) {
+        let _ = job.terminate(1);
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return Err(format!("进程监管挂载失败: {e}"));
+    }
+    if let Err(e) = resume_process_threads(pid) {
+        let _ = job.terminate(1);
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return Err(e);
+    }
     let job_holder = Arc::new(job);
 
     let stdin = child.stdin.take();
@@ -1076,6 +1174,72 @@ async fn start_process(
     Ok(StartInfo { pid, started_at_ms })
 }
 
+/// 执行自定义停止命令:挂起创建 → 挂入独立 Job → 恢复。
+/// 超时(或脚本失败)时终止整个 Job,保证停止脚本及其子进程不会在后台继续运行。
+async fn run_stop_command(stop_cmd: &str, shell: &str, cwd: &str, env: &HashMap<String, String>) {
+    let mut stop_command = if shell.eq_ignore_ascii_case("powershell") {
+        let mut c = Command::new("powershell");
+        c.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
+            .raw_arg(stop_cmd);
+        c
+    } else {
+        let mut c = Command::new("cmd");
+        c.args(["/C"]).raw_arg(stop_cmd);
+        c
+    };
+    stop_command
+        .creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED_FLAG)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    if !cwd.is_empty() {
+        let cwd_path = Path::new(cwd);
+        if cwd_path.is_dir() {
+            stop_command.current_dir(cwd_path);
+        }
+    }
+    for (k, v) in env {
+        stop_command.env(k, v);
+    }
+    stop_command.kill_on_drop(true);
+
+    let mut child = match stop_command.spawn() {
+        Ok(child) => child,
+        Err(_) => return,
+    };
+    // 挂起创建的进程必须恢复,否则停止脚本会一直卡住直到超时被杀
+    let job = JobObject::create_with_kill_on_close().ok();
+    let mut managed = false;
+    let mut ready = false;
+    if let Some(pid) = child.id() {
+        // 拿不到 Job 也要继续执行停止脚本:优雅退出的尝试不能因为纳管失败而取消
+        managed = match job {
+            Some(ref job) => job.assign_process(pid).is_ok(),
+            None => false,
+        };
+        ready = resume_process_threads(pid).is_ok();
+    }
+    if !ready {
+        if let Some(ref job) = job {
+            let _ = job.terminate(1);
+        }
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return;
+    }
+    let finished = timeout(Duration::from_secs(5), child.wait()).await.is_ok();
+    if !finished {
+        // 超时:先杀 Job(含子孙),再兜底杀根进程并回收,避免遗留僵尸
+        if managed {
+            if let Some(ref job) = job {
+                let _ = job.terminate(1);
+            }
+        }
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+}
+
 #[tauri::command]
 async fn stop_process(registry: State<'_, ProcessRegistry>, pid: u32) -> Result<bool, String> {
     let proc_data = {
@@ -1088,28 +1252,7 @@ async fn stop_process(registry: State<'_, ProcessRegistry>, pid: u32) -> Result<
 
     // 如果指定了自定义停止命令, 优先执行析构指令(如 wsl --shutdown / docker compose down)
     if !stop_cmd.trim().is_empty() {
-        let mut stop_command = if shell.eq_ignore_ascii_case("powershell") {
-            let mut c = Command::new("powershell");
-            c.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"])
-                .raw_arg(&stop_cmd);
-            c
-        } else {
-            let mut c = Command::new("cmd");
-            c.args(["/C"]).raw_arg(&stop_cmd);
-            c
-        };
-        stop_command.creation_flags(CREATE_NO_WINDOW);
-        if !cwd.is_empty() {
-            let cwd_path = Path::new(&cwd);
-            if cwd_path.is_dir() {
-                stop_command.current_dir(cwd_path);
-            }
-        }
-        for (k, v) in env {
-            stop_command.env(k, v);
-        }
-        // 最多等待 5 秒执行停止命令
-        let _ = timeout(Duration::from_secs(5), stop_command.output()).await;
+        run_stop_command(&stop_cmd, &shell, &cwd, &env).await;
 
         // 等待原进程树自然排空(最多 3 秒)
         let drain_deadline = std::time::Instant::now() + Duration::from_secs(3);
@@ -1489,8 +1632,16 @@ fn harden_webview(webview: tauri::webview::PlatformWebview) {
     }
 }
 
+/// 退出清理只执行一次:托盘退出后 app.exit 还会再触发 ExitRequested,
+/// 重复执行会把停止脚本跑两遍并额外阻塞退出。
+static EXIT_CLEANUP_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// 退出前停掉所有运行中的进程树(同步:原子调用内核 TerminateJobObject)
 fn stop_all_sync(app: &AppHandle) {
+    use std::sync::atomic::Ordering;
+    if EXIT_CLEANUP_DONE.swap(true, Ordering::SeqCst) {
+        return;
+    }
     let registry = app.state::<ProcessRegistry>();
     let (jobs, stop_cmds): (
         Vec<Arc<JobObject>>,
@@ -1506,8 +1657,15 @@ fn stop_all_sync(app: &AppHandle) {
         (jobs, stop_cmds)
     };
 
-    // 退出前若有配置 stop_cmd 的进程, 先同步触发析构(如 wsl --shutdown)
+    // 退出前若有配置 stop_cmd 的进程, 先同步触发析构(如 wsl --shutdown)。
+    // 每条脚本最多等 3 秒,总预算 6 秒;超时直接杀掉,不能因为停止脚本卡住而让应用无法退出。
+    let overall_deadline = std::time::Instant::now() + Duration::from_secs(6);
     for (stop_cmd, shell, cwd, env) in stop_cmds {
+        let remaining = overall_deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let budget = remaining.min(Duration::from_secs(3));
         let mut c = if shell.eq_ignore_ascii_case("powershell") {
             let mut sc = StdCommand::new("powershell");
             sc.args(["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &stop_cmd]);
@@ -1517,7 +1675,7 @@ fn stop_all_sync(app: &AppHandle) {
             sc.args(["/C", &stop_cmd]);
             sc
         };
-        c.creation_flags(CREATE_NO_WINDOW);
+        c.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED_FLAG);
         if !cwd.is_empty() {
             let p = Path::new(&cwd);
             if p.is_dir() {
@@ -1527,7 +1685,42 @@ fn stop_all_sync(app: &AppHandle) {
         for (k, v) in env {
             c.env(k, v);
         }
-        let _ = c.status();
+        if let Ok(mut child) = c.spawn() {
+            // 停止脚本自身也放进独立 Job:超时后能连同它派生的子进程一起回收
+            let stop_job = JobObject::create_with_kill_on_close().ok();
+            let mut managed = false;
+            let mut ready = false;
+            if let Some(pid) = child.id() {
+                if let Some(ref job) = stop_job {
+                    managed = job.assign_process(pid).is_ok();
+                }
+                ready = resume_process_threads(pid).is_ok();
+            }
+            if !ready {
+                let _ = child.kill();
+                let _ = child.wait();
+                continue;
+            }
+            let deadline = std::time::Instant::now() + budget;
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    _ => {
+                        if managed {
+                            if let Some(ref job) = stop_job {
+                                let _ = job.terminate(1);
+                            }
+                        }
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     for job in jobs {

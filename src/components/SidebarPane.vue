@@ -118,7 +118,7 @@ function openInfraMenu(e, service) {
           },
         ]
       : []),
-    { type: "divider" },
+    { divider: true },
     {
       label: "编辑服务",
       icon: Edit3,
@@ -141,19 +141,17 @@ function openInfraMenu(e, service) {
       icon: Copy,
       action: () => duplicateInfraService(service),
     },
-    { type: "divider" },
+    { divider: true },
     {
       label: "删除服务",
       icon: Trash2,
       danger: true,
-      action: () => {
-        confirmAction({
+      action: async () => {
+        const ok = await confirmAction(`确定要删除基础设施服务「${service.name}」吗?`, {
           title: "删除基础设施服务",
-          message: `确定要删除基础设施服务「${service.name}」吗?`,
-          confirmText: "删除",
           danger: true,
-          onConfirm: () => removeInfraService(service),
         });
+        if (ok) removeInfraService(service);
       },
     },
   ];
@@ -161,7 +159,14 @@ function openInfraMenu(e, service) {
 }
 
 function onScrollBgContextMenu(e) {
-  if (e.target.closest(".project-node") || e.target.closest(".infra-row") || e.target.closest(".infra-header")) {
+  // 行内已自行处理右键,这里只负责空白区域;项目节点类名是 .project-wrap,
+  // 同时检查命令行,避免行菜单被背景菜单覆盖。
+  if (
+    e.target.closest(".project-wrap") ||
+    e.target.closest(".cmd-row") ||
+    e.target.closest(".infra-row") ||
+    e.target.closest(".infra-header")
+  ) {
     return;
   }
   const items = [

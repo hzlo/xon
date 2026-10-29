@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 
 const props = defineProps({
   x: { type: Number, required: true },
@@ -48,18 +48,23 @@ function onWindowKeyDown(e) {
   }
 }
 
+function onWindowResize() {
+  emit("close");
+}
+
 onMounted(() => {
   nextTick(updatePosition);
   window.addEventListener("pointerdown", onWindowPointerDown, true);
   window.addEventListener("contextmenu", onWindowPointerDown, true);
   window.addEventListener("keydown", onWindowKeyDown);
-  window.addEventListener("resize", () => emit("close"));
+  window.addEventListener("resize", onWindowResize);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener("pointerdown", onWindowPointerDown, true);
   window.removeEventListener("contextmenu", onWindowPointerDown, true);
   window.removeEventListener("keydown", onWindowKeyDown);
+  window.removeEventListener("resize", onWindowResize);
 });
 </script>
 

@@ -214,7 +214,14 @@ function classifyLine(stream, text) {
 function ansiOf(line) {
   let hit = ansiCache.get(line.id);
   if (!hit) {
-    const rawParsed = parseAnsiLine(line.text);
+    let rawParsed;
+    try {
+      rawParsed = parseAnsiLine(line.text);
+    } catch (err) {
+      // 外部日志内容是任意的:解析失败时退化为纯文本,不能让整页日志/搜索崩掉
+      console.error("ANSI 解析失败,已降级为纯文本:", err);
+      rawParsed = { segs: [{ text: line.text ?? "", style: null }], plain: line.text ?? "", styled: false };
+    }
     const lineClass = classifyLine(line.stream, rawParsed.plain);
     let sysKind = "info";
     let cleanSys = "";
@@ -316,6 +323,7 @@ const filteredLines = computed(() => {
   }
   return list;
 });
+
 
 const matchInfo = computed(() => {
   const q = query.value.trim();
