@@ -256,7 +256,7 @@ function submit() {
 
 <style scoped>
 .modal {
-  width: min(560px, calc(100vw - 48px));
+  width: min(640px, calc(100vw - 48px));
 }
 .modal-title {
   margin: 0 0 var(--space-xl);
@@ -272,7 +272,10 @@ function submit() {
   flex: 1;
 }
 .field-narrow {
-  flex: 0 0 96px !important;
+  flex: 0 0 128px !important;
+}
+.field-narrow > label {
+  white-space: nowrap;
 }
 .accent-row {
   display: flex;

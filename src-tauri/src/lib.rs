@@ -522,6 +522,24 @@ fn resume_process_threads(pid: u32) -> Result<(), String> {
 }
 
 fn data_dir() -> PathBuf {
+    // 1. 环境变量显式指定配置目录
+    if let Ok(custom) = std::env::var("XON_DATA_DIR") {
+        let trimmed = custom.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+
+    // 2. 便携模式探测: 同级目录存在 data.json 或 .portable 标记文件时就地读写
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            if exe_dir.join("data.json").exists() || exe_dir.join(".portable").exists() {
+                return exe_dir.to_path_buf();
+            }
+        }
+    }
+
+    // 3. 默认回退至 %LOCALAPPDATA%\xon
     std::env::var("LOCALAPPDATA")
         .map(|d| PathBuf::from(d).join("xon"))
         .unwrap_or_else(|_| PathBuf::from("."))

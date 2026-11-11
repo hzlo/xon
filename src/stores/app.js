@@ -7,6 +7,7 @@ import * as api from "../api.js";
 import {
   buildPipelineStartPayload,
   formatPipelineSummary,
+  isWslPath,
   parseDeloyConfig,
 } from "../utils/pipeline.js";
 
@@ -560,13 +561,14 @@ export function cleanCmdSnippet(cmd, command = null) {
 export function addCommand(project, spec) {
   const isPipeline = spec.kind === "pipeline" && spec.pipeline;
   const pipeline = isPipeline ? { ...spec.pipeline } : undefined;
+  const pipeCwd = isPipeline && !isWslPath(pipeline.repoDir) ? pipeline.repoDir || "" : "";
   const command = {
     id: genId("c"),
     name: spec.name,
     cmd: isPipeline ? formatPipelineSummary(pipeline) : spec.cmd,
     stopCmd: spec.stopCmd || "",
     shell: isPipeline ? "powershell" : spec.shell || "cmd",
-    cwd: isPipeline ? pipeline.repoDir || "" : spec.cwd || "",
+    cwd: isPipeline ? pipeCwd : spec.cwd || "",
     env: spec.env ?? {},
     kind: spec.kind || (isTaskCommand(spec) ? "task" : "service"),
     ...(pipeline ? { pipeline } : {}),
@@ -586,7 +588,7 @@ export function updateCommand(command, spec) {
     command.pipeline = { ...spec.pipeline };
     command.cmd = formatPipelineSummary(command.pipeline);
     command.shell = "powershell";
-    command.cwd = command.pipeline.repoDir || "";
+    command.cwd = isWslPath(command.pipeline.repoDir) ? "" : command.pipeline.repoDir || "";
   } else {
     delete command.pipeline;
     command.cmd = spec.cmd;

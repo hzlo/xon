@@ -4,6 +4,7 @@ import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { FolderOpen } from "lucide-vue-next";
 import { pickFolder } from "../api.js";
 import { isTaskCommand } from "../stores/app.js";
+import { isWslPath } from "../utils/pipeline.js";
 
 const props = defineProps({
   kind: { type: String, required: true }, // group | project | command | infra
@@ -106,7 +107,7 @@ function submit() {
       cmd: "",
       stopCmd: "",
       shell: "powershell",
-      cwd: form.pipeRepoDir.trim(),
+      cwd: isWslPath(form.pipeRepoDir) ? "" : form.pipeRepoDir.trim(),
       kind: "pipeline",
       autoStart: false,
       env,
@@ -231,7 +232,10 @@ function submit() {
 
         <template v-if="kind === 'command' && form.kindType === 'pipeline'">
           <div class="field">
-            <label for="pipe-repo-dir">代码仓库目录</label>
+            <label for="pipe-repo-dir">
+              代码仓库目录
+              <span class="field-hint">(支持 WSL 路径如 ~/builds/MES-NET，全流程将在 WSL 内拉取与构建)</span>
+            </label>
             <div class="dir-row">
               <input
                 id="pipe-repo-dir"
@@ -242,7 +246,7 @@ function submit() {
                 spellcheck="false"
                 autocapitalize="off"
                 :aria-invalid="errors.repoDir ? 'true' : undefined"
-                :placeholder="defaults.dir ? `留空则继承项目目录(${defaults.dir})` : '如: D:\\projects\\deloy\\MES-NET'"
+                :placeholder="defaults.dir ? `留空继承项目目录(${defaults.dir})，或填 ~/builds/...` : '如: ~/builds/MES-NET 或 D:\\projects\\...'"
               />
               <button type="button" class="btn-secondary browse-btn" aria-label="浏览选择代码仓库目录" @click="browseDir('pipeRepoDir')">
                 <FolderOpen />浏览…
@@ -431,6 +435,9 @@ function submit() {
 </template>
 
 <style scoped>
+.modal {
+  width: min(580px, calc(100vw - 48px));
+}
 .modal-title {
   margin: 0 0 var(--space-xl);
   font-size: 1.0769rem;

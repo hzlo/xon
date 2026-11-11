@@ -81,14 +81,13 @@
   --input-bg: rgba(36, 41, 51, 0.55);           /* 输入框凹陷底 */
   --input-border: rgba(236, 239, 244, 0.48);    /* on card 3.35:1 (1.4.11 ✓) */
 
-  /* ---------- 玻璃材质 (Liquid Glass) ----------
-     仅用于: 对话框 / 弹出菜单 / 顶栏。树视图与列表主体禁用 (性能)。 */
-  --glass-panel-bg: rgba(59, 66, 82, 0.55);     /* 顶栏/浮层面板 */
-  --glass-dialog-bg: rgba(59, 66, 82, 0.80);    /* 模态对话框 (复合底上正文 9.3:1) */
-  --glass-border: rgba(236, 239, 244, 0.20);    /* 亮边勾轮廓 (清晰分界) */
+  /* ---------- 弹框与浮层实色材质 (去除半透明毛玻璃透视) ---------- */
+  --glass-panel-bg: var(--color-card);
+  --glass-dialog-bg: var(--color-card);
+  --glass-border: var(--color-border);
   --glass-highlight: inset 0 1px 0 rgba(236, 239, 244, 0.06);
-  --glass-blur: saturate(150%) blur(32px);
-  --overlay-scrim: rgba(36, 41, 51, 0.62);      /* 模态遮罩 */
+  --glass-blur: none;
+  --overlay-scrim: rgba(25, 29, 36, 0.65);      /* 模态遮罩 */
 
   /* ---------- 行级状态 (树/列表, 叠加在表面之上) ---------- */
   --overlay-hover: rgba(236, 239, 244, 0.05);
@@ -619,14 +618,12 @@ button {
   opacity: 0.8;
 }
 
-/* ------------------------------------------------------------- 对话框 (Liquid Glass) */
+/* ------------------------------------------------------------- 对话框 */
 
 .modal-overlay {
   position: fixed;
   inset: 0;
   background: var(--overlay-scrim);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -634,14 +631,12 @@ button {
   transition: opacity var(--dur-slow) var(--ease);
 }
 .modal {
-  background: var(--glass-dialog-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-xl);
   padding: var(--space-xl);
-  box-shadow: var(--glass-highlight), var(--shadow-lg);
-  width: min(520px, calc(100vw - 48px));
+  box-shadow: var(--shadow-lg);
+  width: min(560px, calc(100vw - 48px));
   max-height: calc(100vh - 64px);
   overflow-x: hidden;
   overflow-y: auto;
