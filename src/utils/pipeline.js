@@ -1,5 +1,6 @@
 // 容器构建流水线模块:
 // - 内置无外部依赖的 PowerShell 构建脚本(支持 Windows 仓库与 WSL 原生仓库双模式)
+// - 支持配置 Git 仓库地址与分支,目录不存在时自动 git clone
 // - 级联解析 Project 级与 Command 级构建参数
 // - 解析原 deloy package.config.json 实现一键导入迁移
 
@@ -56,6 +57,8 @@ export function resolvePipelineParams(project, command) {
 
   const saveDir = (pipe.saveDir || "").trim() || (project?.saveDir || "").trim();
   const wslDistro = (pipe.wslDistro || "").trim() || (project?.wslDistro || "").trim();
+  const gitUrl = (pipe.gitUrl || "").trim();
+  const gitBranch = (pipe.gitBranch || "").trim();
   const imageName = (pipe.imageName || "").trim();
   const imageTag = (pipe.imageTag || "").trim() || "latest";
   const dockerfilePath = (pipe.dockerfilePath || "").trim();
@@ -65,6 +68,8 @@ export function resolvePipelineParams(project, command) {
 
   return {
     repoDir,
+    gitUrl,
+    gitBranch,
     saveDir,
     wslDistro,
     imageName,
@@ -87,9 +92,10 @@ export function formatPipelineSummary(pipeline) {
 
 /**
  * 自包含容器构建 PowerShell 脚本(纯 UTF-8 逻辑,通过环境变量 XON_PIPE_* 接收参数)。
- * - 当 repoDir 为 / 或 ~ 开头时: 全流程(git pull / 校验 / docker build)在 WSL 原生 ext4 内完成。
- * - 当 repoDir 为 Windows 路径时: 保留在宿主机拉取并自动映射进 WSL 构建。
- * - 导出 .tar 到 Windows 目录时保留 /tmp 中转拷贝机制(规避 9p 内存溢出)。
+ * - 支持自动 git clone(当仓库目录不存在且配置了 gitUrl)与指定分支切换/拉取
+ * - 当 repoDir 为 / 或 ~ 开头时: 全流程在 WSL 原生 ext4 内完成
+ * - 当 repoDir 为 Windows 路径时: 保留在宿主机拉取并自动映射进 WSL 构建
+ * - 导出 .tar 到 Windows 目录时保留 /tmp 中转拷贝机制(规避 9p 内存溢出)
  */
 export const PIPELINE_PS1 = `
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -98,6 +104,7 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT) {
     chcp 65001 | Out-Null
 }
+$env:WSL_UTF8 = "1"
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -145,6 +152,8 @@ function Format-FileSize([long]$Bytes) {
 }
 
 $RepoDir        = [string]$env:XON_PIPE_REPO_DIR
+$GitUrl         = [string]$env:XON_PIPE_GIT_URL
+$GitBranch      = [string]$env:XON_PIPE_GIT_BRANCH
 $ImageName      = [string]$env:XON_PIPE_IMAGE_NAME
 $ImageTag       = [string]$env:XON_PIPE_IMAGE_TAG
 $DockerfilePath = [string]$env:XON_PIPE_DOCKERFILE
@@ -156,6 +165,8 @@ $WslDistro      = [string]$env:XON_PIPE_WSL_DISTRO
 
 if ([string]::IsNullOrWhiteSpace($ImageTag)) { $ImageTag = "latest" }
 if ([string]::IsNullOrWhiteSpace($BuildContext)) { $BuildContext = "." }
+$GitUrl = $GitUrl.Trim()
+$GitBranch = $GitBranch.Trim()
 
 $WslArgs = if ([string]::IsNullOrWhiteSpace($WslDistro)) { @() } else { @("-d", $WslDistro) }
 
@@ -167,10 +178,38 @@ function ConvertTo-WslPath([string]$WindowsPath) {
     return ($converted | Select-Object -First 1).Trim()
 }
 
+function Get-WslLauncher([string]$Cmd) {
+    $b64 = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Cmd))
+    return ('source <(echo ' + $b64 + ' | base64 -d)')
+}
+
 function Invoke-WslBash([string]$Cmd, [string]$ErrMsg) {
-    & wsl @WslArgs -e bash -lc $Cmd
+    & wsl @WslArgs -e bash -l -c (Get-WslLauncher $Cmd)
     if ($LASTEXITCODE -ne 0) {
         throw $ErrMsg
+    }
+}
+
+function Test-WslBash([string]$Cmd) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & wsl @WslArgs -e bash -l -c (Get-WslLauncher $Cmd) | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    }
+    finally {
+        $ErrorActionPreference = $prev
+    }
+}
+
+function Invoke-WslQuiet([string]$Cmd) {
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        return (& wsl @WslArgs -e bash -l -c (Get-WslLauncher $Cmd) 2>$null)
+    }
+    finally {
+        $ErrorActionPreference = $prev
     }
 }
 
@@ -185,11 +224,61 @@ try {
     $BaseImageName = ($FullImageTag -split ':')[0]
 
     if ($IsWslRepo) {
-        Write-Info "仓库目录 (WSL): $RepoDir"
+        $RepoDirNorm = if ($RepoDir -eq "/") { "/" } else { $RepoDir.TrimEnd('/') }
+        $WslRepoExpr = ConvertTo-BashPathExpr $RepoDirNorm
+        $GitCheckExpr = if ($RepoDirNorm -eq "/") { "/.git" } else { "$RepoDirNorm/.git" }
+        $WslGitExpr = ConvertTo-BashPathExpr $GitCheckExpr
+
+        Write-Info "仓库目录 (WSL): $RepoDirNorm"
         Write-Info "目标镜像: $FullImageTag"
 
-        $WslRepoExpr = ConvertTo-BashPathExpr $RepoDir
-        Invoke-WslBash "test -d $WslRepoExpr" "WSL 中代码仓库目录不存在: $RepoDir"
+        $HasGitRepo = Test-WslBash ('test -d ' + $WslGitExpr)
+
+        if (-not $HasGitRepo) {
+            if (-not [string]::IsNullOrWhiteSpace($GitUrl)) {
+                $NonEmptyCmd = 'test -e ' + $WslRepoExpr + ' && [ -n "$(ls -A ' + $WslRepoExpr + ' 2>/dev/null)" ]'
+                if (Test-WslBash $NonEmptyCmd) {
+                    throw "WSL 目录已存在且非空(非 Git 仓库)，无法自动 clone: $RepoDirNorm"
+                }
+                Write-Step "Step 1: Git Clone (WSL)"
+                Write-Info "正在克隆仓库: $GitUrl"
+                $BranchArg = if (-not [string]::IsNullOrWhiteSpace($GitBranch)) { "-b $(ConvertTo-BashSingleQuoted $GitBranch) " } else { "" }
+                $CloneBash = 'mkdir -p "$(dirname ' + $WslRepoExpr + ')" && git clone ' + $BranchArg + (ConvertTo-BashSingleQuoted $GitUrl) + ' ' + $WslRepoExpr
+                Invoke-WslBash $CloneBash "Git clone 失败，请检查仓库地址、分支与认证凭据"
+                Write-Ok "Git clone 成功"
+            }
+            else {
+                Invoke-WslBash ('test -d ' + $WslRepoExpr) "WSL 中代码仓库目录不存在: $RepoDirNorm（可填写 Git 仓库地址以自动 clone）"
+            }
+        }
+        elseif ((-not [string]::IsNullOrWhiteSpace($GitBranch)) -or $EnableGitPull) {
+            Write-Step "Step 1: Git Sync (WSL)"
+            if (-not [string]::IsNullOrWhiteSpace($GitBranch)) {
+                $CurrBranchRaw = Invoke-WslQuiet ('cd ' + $WslRepoExpr + ' && git rev-parse --abbrev-ref HEAD')
+                $CurrBranch = (($CurrBranchRaw -join "")).Trim()
+                if ($CurrBranch -ne $GitBranch) {
+                    Write-Info "切换分支: $CurrBranch -> $GitBranch"
+                    $QBranch = ConvertTo-BashSingleQuoted $GitBranch
+                    $SwitchBash = "cd $WslRepoExpr && git fetch origin $QBranch && (git checkout $QBranch || git checkout -b $QBranch origin/$QBranch)"
+                    Invoke-WslBash $SwitchBash "切换分支失败: $GitBranch"
+                }
+            }
+            if ($EnableGitPull) {
+                Write-Info "正在 WSL 内拉取最新代码..."
+                $PullBash = if (-not [string]::IsNullOrWhiteSpace($GitBranch)) {
+                    "cd $WslRepoExpr && git pull origin $(ConvertTo-BashSingleQuoted $GitBranch)"
+                } else {
+                    "cd $WslRepoExpr && git pull"
+                }
+                Invoke-WslBash $PullBash "Git pull 失败，请检查 WSL 内网络与分支状态"
+                Write-Ok "Git pull 成功"
+            }
+        }
+
+        $CommitLine = Invoke-WslQuiet ('cd ' + $WslRepoExpr + ' && if [ -d .git ]; then git log -1 --format="%h - %s"; fi')
+        if (-not [string]::IsNullOrWhiteSpace(($CommitLine -join ""))) {
+            Write-Info ("当前 Commit: " + (($CommitLine -join " ").Trim()))
+        }
 
         $DockerNorm = $DockerfilePath.Trim() -replace '\\\\', '/'
         $ContextNorm = $BuildContext.Trim() -replace '\\\\', '/'
@@ -204,18 +293,6 @@ try {
             ConvertTo-BashPathExpr $ContextNorm
         }
 
-        if ($EnableGitPull) {
-            Write-Step "Step 1: Git Pull (WSL)"
-            Write-Info "正在 WSL 内拉取最新代码..."
-            Invoke-WslBash "cd $WslRepoExpr && git pull" "Git pull 失败，请检查 WSL 内网络与分支状态"
-            Write-Ok "Git pull 成功"
-        }
-
-        $CommitLine = (& wsl @WslArgs -e bash -lc "cd $WslRepoExpr && if [ -d .git ]; then git log -1 --format='%h - %s' 2>/dev/null; fi" 2>$null)
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace(($CommitLine -join ""))) {
-            Write-Info ("当前 Commit: " + (($CommitLine -join " ").Trim()))
-        }
-
         Invoke-WslBash "cd $WslRepoExpr && test -d $WslContextArg" "Build context 在 WSL 中不存在: $BuildContext"
         Invoke-WslBash "cd $WslRepoExpr && test -f $WslDockerArg" "Dockerfile 在 WSL 中不存在: $DockerfilePath"
 
@@ -227,10 +304,82 @@ try {
     }
     else {
         $RepoDir = [System.IO.Path]::GetFullPath($RepoDir)
-        if (-not (Test-Path -LiteralPath $RepoDir -PathType Container)) {
-            throw "代码仓库目录不存在: $RepoDir"
+        $HasGitRepo = Test-Path -LiteralPath (Join-Path $RepoDir ".git") -PathType Container
+
+        Write-Info "仓库目录 (Windows): $RepoDir"
+        Write-Info "目标镜像: $FullImageTag"
+
+        if (-not $HasGitRepo) {
+            if (-not [string]::IsNullOrWhiteSpace($GitUrl)) {
+                if ((Test-Path -LiteralPath $RepoDir) -and (@(Get-ChildItem -LiteralPath $RepoDir -Force).Count -gt 0)) {
+                    throw "目录已存在且非空(非 Git 仓库)，无法自动 clone: $RepoDir"
+                }
+                $ParentDir = Split-Path -Parent $RepoDir
+                if (-not [string]::IsNullOrWhiteSpace($ParentDir)) {
+                    New-Item -ItemType Directory -Force -Path $ParentDir | Out-Null
+                }
+                Write-Step "Step 1: Git Clone"
+                Write-Info "正在克隆仓库: $GitUrl"
+                if (-not [string]::IsNullOrWhiteSpace($GitBranch)) {
+                    & git clone -b $GitBranch $GitUrl $RepoDir
+                } else {
+                    & git clone $GitUrl $RepoDir
+                }
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Git clone 失败，请检查仓库地址、分支与认证凭据"
+                }
+                Write-Ok "Git clone 成功"
+                $HasGitRepo = $true
+            }
+            elseif (-not (Test-Path -LiteralPath $RepoDir -PathType Container)) {
+                throw "代码仓库目录不存在: $RepoDir（可填写 Git 仓库地址以自动 clone）"
+            }
         }
+
         Set-Location -LiteralPath $RepoDir
+
+        if ($HasGitRepo -and ((-not [string]::IsNullOrWhiteSpace($GitBranch)) -or $EnableGitPull)) {
+            Write-Step "Step 1: Git Sync"
+            if (-not [string]::IsNullOrWhiteSpace($GitBranch)) {
+                $prev = $ErrorActionPreference
+                $ErrorActionPreference = "Continue"
+                $CurrBranch = ((& git rev-parse --abbrev-ref HEAD 2>$null) -join "").Trim()
+                $ErrorActionPreference = $prev
+                if ($CurrBranch -ne $GitBranch) {
+                    Write-Info "切换分支: $CurrBranch -> $GitBranch"
+                    & git fetch origin $GitBranch
+                    if ($LASTEXITCODE -ne 0) { throw "拉取分支失败: $GitBranch" }
+                    & git checkout $GitBranch
+                    if ($LASTEXITCODE -ne 0) {
+                        & git checkout -b $GitBranch "origin/$GitBranch"
+                        if ($LASTEXITCODE -ne 0) { throw "切换分支失败: $GitBranch" }
+                    }
+                }
+            }
+            if ($EnableGitPull) {
+                Write-Info "正在拉取最新代码..."
+                if (-not [string]::IsNullOrWhiteSpace($GitBranch)) {
+                    & git pull origin $GitBranch
+                } else {
+                    & git pull
+                }
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Git pull 失败，请检查网络与分支状态"
+                }
+                Write-Ok "Git pull 成功"
+            }
+        }
+
+        if ($HasGitRepo) {
+            $prev = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            $CommitHash = ((& git rev-parse --short HEAD 2>$null) -join "").Trim()
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($CommitHash)) {
+                $CommitMsg = ((& git log -1 --pretty=%B 2>$null) -join " ").Trim()
+                Write-Info ("当前 Commit: $CommitHash" + ($(if ($CommitMsg) { " - $CommitMsg" } else { "" })))
+            }
+            $ErrorActionPreference = $prev
+        }
 
         $BuildContextFull = if ([System.IO.Path]::IsPathRooted($BuildContext)) {
             $BuildContext
@@ -239,27 +388,6 @@ try {
         }
         if (-not (Test-Path -LiteralPath $BuildContextFull -PathType Container)) {
             throw "Build context 不存在: $BuildContextFull"
-        }
-
-        Write-Info "仓库目录 (Windows): $RepoDir"
-        Write-Info "目标镜像: $FullImageTag"
-
-        if ($EnableGitPull) {
-            Write-Step "Step 1: Git Pull"
-            Write-Info "正在拉取最新代码..."
-            & git pull
-            if ($LASTEXITCODE -ne 0) {
-                throw "Git pull 失败，请检查网络与分支状态"
-            }
-            Write-Ok "Git pull 成功"
-        }
-
-        if (Test-Path -LiteralPath (Join-Path $RepoDir ".git")) {
-            $CommitHash = (& git rev-parse --short HEAD 2>$null)
-            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($CommitHash)) {
-                $CommitMsg = ((& git log -1 --pretty=%B 2>$null) -join " ").Trim()
-                Write-Info ("当前 Commit: " + $CommitHash.Trim() + ($(if ($CommitMsg) { " - $CommitMsg" } else { "" })))
-            }
         }
 
         $DockerfileFull = if ([System.IO.Path]::IsPathRooted($DockerfilePath)) {
@@ -316,7 +444,7 @@ try {
             $SaveBash = "mkdir -p $WslSaveDirExpr && docker save -o $WslSaveFileExpr $(ConvertTo-BashSingleQuoted $FullImageTag)"
             Invoke-WslBash $SaveBash "Docker save 失败"
 
-            $SizeBytesRaw = (& wsl @WslArgs -e bash -lc "stat -c%s $WslSaveFileExpr 2>/dev/null || wc -c < $WslSaveFileExpr" 2>$null | Select-Object -First 1)
+            $SizeBytesRaw = (Invoke-WslQuiet "stat -c%s $WslSaveFileExpr || wc -c < $WslSaveFileExpr" | Select-Object -First 1)
             $FileSize = if ($SizeBytesRaw -match '^\\d+$') { Format-FileSize ([long]$SizeBytesRaw) } else { "未知大小" }
             Write-Ok "Docker save 成功"
             Write-Ok "镜像产物: $TargetSaveFile ($FileSize)"
@@ -382,6 +510,8 @@ export function buildPipelineStartPayload(project, command) {
   const env = {
     ...(command?.env ?? {}),
     XON_PIPE_REPO_DIR: p.repoDir,
+    XON_PIPE_GIT_URL: p.gitUrl,
+    XON_PIPE_GIT_BRANCH: p.gitBranch,
     XON_PIPE_IMAGE_NAME: p.imageName,
     XON_PIPE_IMAGE_TAG: p.imageTag,
     XON_PIPE_DOCKERFILE: p.dockerfilePath,
@@ -397,8 +527,8 @@ export function buildPipelineStartPayload(project, command) {
   return {
     cmd: getBootstrapCommand(),
     shell: "powershell",
-    // WSL 原生路径(如 ~/builds/MES-NET)不能直接作为 Windows 进程 cwd,置空由 WSL bash 内部 cd
-    cwd: isWslPath(p.repoDir) ? "" : p.repoDir || "",
+    // 置空 cwd: 兼容 WSL 原生路径及尚未 clone 的 Windows 目录(由脚本本身在 clone 后切换目录)
+    cwd: "",
     env,
   };
 }
@@ -439,6 +569,8 @@ export function parseDeloyConfig(jsonText, baseDir = "") {
 
     const pipeline = {
       repoDir,
+      gitUrl: (item.gitUrl || "").trim(),
+      gitBranch: (item.gitBranch || "").trim(),
       imageName: (item.imageName || "").trim(),
       imageTag: "latest",
       dockerfilePath: (item.dockerfilePath || "").trim(),

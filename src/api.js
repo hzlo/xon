@@ -7,7 +7,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open as dialogOpen, save as dialogSave } from "@tauri-apps/plugin-dialog";
-import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 /** 是否运行在 Tauri WebView 内 */
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -15,7 +15,7 @@ export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in
 /** @typedef {{version: number, groups: Group[], projects: Project[], scenarios: Scenario[], settings: AppSettings, services?: InfraService[]}} AppConfig */
 /** @typedef {{id: string, name: string, collapsed?: boolean, groups?: Group[], projects: Project[]}} Group */
 /** @typedef {{id: string, name: string, dir: string, saveDir?: string, wslDistro?: string, collapsed?: boolean, commands: CommandSpec[]}} Project */
-/** @typedef {{repoDir?: string, imageName: string, imageTag?: string, dockerfilePath: string, buildContext?: string, gitPull?: boolean, exportTar?: boolean, saveDir?: string, wslDistro?: string}} PipelineSpec */
+/** @typedef {{repoDir?: string, gitUrl?: string, gitBranch?: string, imageName: string, imageTag?: string, dockerfilePath: string, buildContext?: string, gitPull?: boolean, exportTar?: boolean, saveDir?: string, wslDistro?: string}} PipelineSpec */
 /** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>, kind?: 'service'|'task'|'pipeline', pipeline?: PipelineSpec}} CommandSpec */
 /** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>, autoStart?: boolean}} InfraService */
 /** @typedef {{id: string, name: string, items: ScenarioItem[]}} Scenario */
@@ -210,7 +210,7 @@ const tauriImpl = {
       multiple: false,
     }),
   openTerminal: (dir) => invoke("open_terminal", { dir }),
-  openDirInExplorer: (dir) => openPath((dir || "").replace(/\//g, "\\")),
+  openDirInExplorer: (dir) => invoke("open_dir_in_explorer", { dir }),
   openBrowserUrl: async (url) => {
     try {
       await openUrl(url);

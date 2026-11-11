@@ -31,6 +31,8 @@ const form = reactive({
     .map(([k, v]) => `${k}=${v}`)
     .join("\n"),
   pipeRepoDir: props.initial.pipeline?.repoDir ?? "",
+  pipeGitUrl: props.initial.pipeline?.gitUrl ?? "",
+  pipeGitBranch: props.initial.pipeline?.gitBranch ?? "",
   pipeImageName: props.initial.pipeline?.imageName ?? "",
   pipeImageTag: props.initial.pipeline?.imageTag ?? "latest",
   pipeDockerfilePath: props.initial.pipeline?.dockerfilePath ?? "",
@@ -113,6 +115,8 @@ function submit() {
       env,
       pipeline: {
         repoDir: form.pipeRepoDir.trim(),
+        gitUrl: form.pipeGitUrl.trim(),
+        gitBranch: form.pipeGitBranch.trim(),
         imageName: form.pipeImageName.trim(),
         imageTag: form.pipeImageTag.trim() || "latest",
         dockerfilePath: form.pipeDockerfilePath.trim(),
@@ -210,10 +214,7 @@ function submit() {
             </div>
           </div>
           <div class="field">
-            <label for="project-save-dir">
-              默认产物目录
-              <span class="field-hint">(可选: 供构建流水线导出 .tar 或注入 XON_SAVE_DIR)</span>
-            </label>
+            <label for="project-save-dir">默认产物目录</label>
             <div class="dir-row">
               <input id="project-save-dir" v-model="form.saveDir" class="input" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="如: D:\Users\ppooqq\Desktop\ftp\tjlw" />
               <button type="button" class="btn-secondary browse-btn" aria-label="浏览选择产物输出目录" @click="browseDir('saveDir')">
@@ -222,20 +223,14 @@ function submit() {
             </div>
           </div>
           <div class="field">
-            <label for="project-wsl-distro">
-              默认 WSL 发行版
-              <span class="field-hint">(可选: 留空使用系统默认)</span>
-            </label>
-            <input id="project-wsl-distro" v-model="form.wslDistro" class="input" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="如: Ubuntu-22.04" />
+            <label for="project-wsl-distro">默认 WSL 发行版</label>
+            <input id="project-wsl-distro" v-model="form.wslDistro" class="input" type="text" autocomplete="off" spellcheck="false" autocapitalize="off" placeholder="留空使用系统默认，如 Ubuntu-22.04" />
           </div>
         </template>
 
         <template v-if="kind === 'command' && form.kindType === 'pipeline'">
           <div class="field">
-            <label for="pipe-repo-dir">
-              代码仓库目录
-              <span class="field-hint">(支持 WSL 路径如 ~/builds/MES-NET，全流程将在 WSL 内拉取与构建)</span>
-            </label>
+            <label for="pipe-repo-dir">代码仓库目录</label>
             <div class="dir-row">
               <input
                 id="pipe-repo-dir"
@@ -246,13 +241,42 @@ function submit() {
                 spellcheck="false"
                 autocapitalize="off"
                 :aria-invalid="errors.repoDir ? 'true' : undefined"
-                :placeholder="defaults.dir ? `留空继承项目目录(${defaults.dir})，或填 ~/builds/...` : '如: ~/builds/MES-NET 或 D:\\projects\\...'"
+                :placeholder="defaults.dir ? `留空继承项目目录(${defaults.dir})` : '如: ~/builds/MES-NET 或 D:\\...'"
               />
               <button type="button" class="btn-secondary browse-btn" aria-label="浏览选择代码仓库目录" @click="browseDir('pipeRepoDir')">
                 <FolderOpen />浏览…
               </button>
             </div>
             <span v-if="errors.repoDir" class="field-error">{{ errors.repoDir }}</span>
+          </div>
+
+          <div class="form-row-2">
+            <div class="field">
+              <label for="pipe-git-url">Git 仓库地址</label>
+              <input
+                id="pipe-git-url"
+                v-model="form.pipeGitUrl"
+                class="input command-input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="off"
+                placeholder="可选，目录不存在时自动 clone"
+              />
+            </div>
+            <div class="field">
+              <label for="pipe-git-branch">分支</label>
+              <input
+                id="pipe-git-branch"
+                v-model="form.pipeGitBranch"
+                class="input command-input"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="off"
+                placeholder="默认分支"
+              />
+            </div>
           </div>
 
           <div class="form-row-2">
@@ -329,10 +353,7 @@ function submit() {
           </div>
 
           <div v-if="form.pipeExportTar" class="field">
-            <label for="pipe-save-dir">
-              导出目录覆盖
-              <span class="field-hint">(可选: 留空则继承所属项目设置)</span>
-            </label>
+            <label for="pipe-save-dir">导出目录</label>
             <div class="dir-row">
               <input
                 id="pipe-save-dir"
@@ -342,7 +363,7 @@ function submit() {
                 autocomplete="off"
                 spellcheck="false"
                 autocapitalize="off"
-                :placeholder="defaults.saveDir ? `继承项目默认(${defaults.saveDir})` : '请在此填写或到所属项目设置默认产物目录'"
+                :placeholder="defaults.saveDir ? `继承项目默认(${defaults.saveDir})` : '请填写导出目录'"
               />
               <button type="button" class="btn-secondary browse-btn" aria-label="浏览选择导出目录" @click="browseDir('pipeSaveDir')">
                 <FolderOpen />浏览…
@@ -351,10 +372,7 @@ function submit() {
           </div>
 
           <div class="field">
-            <label for="pipe-wsl-distro">
-              WSL 发行版覆盖
-              <span class="field-hint">(可选)</span>
-            </label>
+            <label for="pipe-wsl-distro">WSL 发行版</label>
             <input
               id="pipe-wsl-distro"
               v-model="form.pipeWslDistro"
@@ -363,7 +381,7 @@ function submit() {
               autocomplete="off"
               spellcheck="false"
               autocapitalize="off"
-              :placeholder="defaults.wslDistro ? `继承项目默认(${defaults.wslDistro})` : '留空使用系统默认发行版'"
+              :placeholder="defaults.wslDistro ? `继承项目默认(${defaults.wslDistro})` : '留空使用系统默认'"
             />
           </div>
         </template>
@@ -382,10 +400,7 @@ function submit() {
             <span v-if="errors.cmd" class="field-error">{{ errors.cmd }}</span>
           </div>
           <div class="field">
-            <label for="command-stop-cmd">
-              停止命令
-              <span class="field-hint">(可选: 停止时优先执行此命令以优雅退出/关机)</span>
-            </label>
+            <label for="command-stop-cmd">停止命令</label>
             <input
               id="command-stop-cmd"
               v-model="form.stopCmd"
@@ -497,7 +512,7 @@ function submit() {
 }
 .form-row-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 7fr 3fr;
   gap: var(--space-md);
 }
 .pipe-checks {

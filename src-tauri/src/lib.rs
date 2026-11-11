@@ -223,6 +223,10 @@ pub struct PipelineSpec {
     #[serde(default)]
     pub repo_dir: String,
     #[serde(default)]
+    pub git_url: String,
+    #[serde(default)]
+    pub git_branch: String,
+    #[serde(default)]
     pub image_name: String,
     #[serde(default = "default_image_tag")]
     pub image_tag: String,
@@ -872,6 +876,37 @@ fn open_terminal(dir: String) -> Result<(), String> {
         .creation_flags(CREATE_NEW_CONSOLE)
         .spawn()
         .map_err(|e| format!("打开终端失败: {e}"))?;
+    Ok(())
+}
+
+/// 在系统文件管理器中打开目录(支持任意本地盘符与路径,不受 opener 插件白名单限制)
+#[tauri::command]
+fn open_dir_in_explorer(dir: String) -> Result<(), String> {
+    let trimmed = dir.trim();
+    if trimmed.is_empty() {
+        return Err("目录路径为空".into());
+    }
+    #[cfg(windows)]
+    {
+        let normalized = trimmed.replace('/', "\\");
+        if !Path::new(&normalized).is_dir() {
+            return Err(format!("目录不存在:{trimmed}"));
+        }
+        StdCommand::new("explorer.exe")
+            .arg(&normalized)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+    }
+    #[cfg(not(windows))]
+    {
+        if !Path::new(trimmed).is_dir() {
+            return Err(format!("目录不存在:{trimmed}"));
+        }
+        StdCommand::new("xdg-open")
+            .arg(trimmed)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+    }
     Ok(())
 }
 
@@ -1819,6 +1854,7 @@ pub fn run() {
             stop_all_processes,
             list_running,
             open_terminal,
+            open_dir_in_explorer,
             open_browser,
             list_fonts,
             send_input

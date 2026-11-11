@@ -110,8 +110,8 @@ const logoSrc = computed(() => logoColor);
 
 // ---- 面板分隔条 ----
 const SIDEBAR_MIN = 240;
-const SIDEBAR_MAX = 600;
-const sidebarWidth = ref(300);
+const SIDEBAR_MAX = 640;
+const sidebarWidth = ref(360);
 
 function onSplitterPointerdown(e) {
   e.preventDefault();
