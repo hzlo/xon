@@ -188,6 +188,12 @@ pub struct Project {
     pub name: String,
     #[serde(default)]
     pub dir: String,
+    /// 项目级产物默认输出目录(供容器流水线或注入 XON_SAVE_DIR 使用)
+    #[serde(default)]
+    pub save_dir: String,
+    /// 项目级默认 WSL 发行版名称
+    #[serde(default)]
+    pub wsl_distro: String,
     /// 折叠命令列表(纯 UI 状态)
     #[serde(default)]
     pub collapsed: bool,
@@ -199,11 +205,47 @@ fn default_shell() -> String {
     "cmd".into()
 }
 
+fn default_image_tag() -> String {
+    "latest".into()
+}
+
+fn default_build_context() -> String {
+    ".".into()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineSpec {
+    #[serde(default)]
+    pub repo_dir: String,
+    #[serde(default)]
+    pub image_name: String,
+    #[serde(default = "default_image_tag")]
+    pub image_tag: String,
+    #[serde(default)]
+    pub dockerfile_path: String,
+    #[serde(default = "default_build_context")]
+    pub build_context: String,
+    #[serde(default = "default_true")]
+    pub git_pull: bool,
+    #[serde(default = "default_true")]
+    pub export_tar: bool,
+    #[serde(default)]
+    pub save_dir: String,
+    #[serde(default)]
+    pub wsl_distro: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandSpec {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub cmd: String,
     #[serde(default)]
     pub stop_cmd: String,
@@ -213,9 +255,12 @@ pub struct CommandSpec {
     pub cwd: String,
     #[serde(default)]
     pub env: HashMap<String, String>,
-    /// "service" | "task";空 = 由前端按名称/命令推断
+    /// "service" | "task" | "pipeline";空 = 由前端按名称/命令推断
     #[serde(default)]
     pub kind: String,
+    /// 当 kind == "pipeline" 时的容器构建配置
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<PipelineSpec>,
 }
 
 /// 基础设施服务(如 WSL, Docker Compose, Redis 等常驻系统服务)
@@ -789,6 +834,12 @@ fn import_config(path: String) -> Result<AppConfig, String> {
     let text =
         std::fs::read_to_string(&path).map_err(|e| format!("读取导入文件失败: {e}"))?;
     serde_json::from_str(&text).map_err(|e| format!("导入文件解析失败: {e}"))
+}
+
+/// 读取任意 UTF-8 文本文件(用于导入外部构建清单等纯 JSON/配置)
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("读取文件失败: {e}"))
 }
 
 /// 在新控制台窗口打开目录
@@ -1744,6 +1795,7 @@ pub fn run() {
             save_config,
             export_config,
             import_config,
+            read_text_file,
             start_process,
             stop_process,
             stop_all_processes,

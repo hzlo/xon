@@ -8,6 +8,7 @@ import {
   ChevronsUpDown,
   Copy,
   Edit3,
+  FileUp,
   Folder,
   MoreHorizontal,
   Play,
@@ -27,6 +28,7 @@ import {
   duplicateInfraService,
   expandAll,
   formatDuration,
+  importDeloyFromFile,
   isTaskCommand,
   notify,
   removeInfraService,
@@ -176,6 +178,17 @@ function onScrollBgContextMenu(e) {
       action: () => emit("create", { kind: "project", mode: "create" }),
     },
     {
+      label: "从 Deloy 配置新建项目…",
+      icon: FileUp,
+      action: async () => {
+        try {
+          await importDeloyFromFile(null);
+        } catch (err) {
+          notify(`导入失败: ${err?.message || err}`);
+        }
+      },
+    },
+    {
       label: "新建基础设施服务",
       icon: Server,
       action: () => emit("create", { kind: "infra", mode: "create" }),
@@ -254,7 +267,10 @@ function matchesCmd(project, command, q, st) {
     const matchProject = project.name?.toLowerCase().includes(q);
     const matchName = command.name?.toLowerCase().includes(q);
     const matchCmd = command.cmd?.toLowerCase().includes(q);
-    return matchProject || matchName || matchCmd;
+    const matchPipe =
+      command.pipeline?.imageName?.toLowerCase().includes(q) ||
+      command.pipeline?.repoDir?.toLowerCase().includes(q);
+    return matchProject || matchName || matchCmd || matchPipe;
   }
   return true;
 }

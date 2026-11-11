@@ -2,10 +2,13 @@
 // 项目节点(两级扁平模型): 项目行(折叠、冒泡状态、拖拽排序、全能右键) + 命令行(常驻服务/任务区分、命令清洗、端口直达、拖拽排序、全能右键)
 import { computed, inject, ref } from "vue";
 import {
+  Box,
   ChevronDown,
   Copy,
   ExternalLink,
+  FileUp,
   FolderOpen,
+  FolderOutput,
   MoreHorizontal,
   Package,
   Pencil,
@@ -26,7 +29,10 @@ import {
   confirmAction,
   copyToClipboard,
   duplicateCommand,
+  effectiveSaveDir,
   formatDuration,
+  importDeloyFromFile,
+  isPipelineCommand,
   isTaskCommand,
   notify,
   persist,
@@ -144,9 +150,12 @@ const visibleCommands = computed(() => {
       const matchProject = props.project.name?.toLowerCase().includes(q);
       const matchName = cmd.name?.toLowerCase().includes(q);
       const matchCmd = cmd.cmd?.toLowerCase().includes(q);
+      const matchPipe =
+        cmd.pipeline?.imageName?.toLowerCase().includes(q) ||
+        cmd.pipeline?.repoDir?.toLowerCase().includes(q);
       const port = portNumberOf(cmd.cmd);
       const matchPort = port && port.includes(q);
-      return matchProject || matchName || matchCmd || matchPort;
+      return matchProject || matchName || matchCmd || matchPipe || matchPort;
     }
 
     return true;
@@ -184,6 +193,24 @@ async function onDelete() {
 async function onDeleteCommand(command) {
   if (await confirmAction(`删除命令「${command.name}」?`, { title: "删除命令", danger: true })) {
     removeCommand(props.project, command);
+  }
+}
+
+async function openDirPath(dir) {
+  const d = (dir || "").trim();
+  if (!d) return;
+  try {
+    await openDirInExplorer(d);
+  } catch (e) {
+    notify(String(e));
+  }
+}
+
+async function onImportDeloy(project) {
+  try {
+    await importDeloyFromFile(project);
+  } catch (e) {
+    notify(`导入失败: ${e?.message || e}`);
   }
 }
 
@@ -246,10 +273,24 @@ function openProjectMenu(e) {
       action: () => handlers.create({ kind: "command", mode: "create", project: props.project }),
     },
     {
+      label: "导入 Deloy 构建配置…",
+      icon: FileUp,
+      action: () => onImportDeloy(props.project),
+    },
+    {
       label: "在文件管理器中打开",
       icon: FolderOpen,
       action: () => openIn(openDirInExplorer),
     },
+    ...(props.project.saveDir
+      ? [
+          {
+            label: "打开产物目录",
+            icon: FolderOutput,
+            action: () => openDirPath(props.project.saveDir),
+          },
+        ]
+      : []),
     {
       label: "在控制台中打开",
       icon: SquareTerminal,
@@ -299,6 +340,7 @@ function openCmdMenu(e, command) {
   const isRunning = runningOf(key) != null;
   const port = portNumberOf(command.cmd);
   const pid = isRunning ? runningOf(key)?.pid : store.lastPidByCommand.get(key);
+  const saveDir = effectiveSaveDir(props.project, command);
 
   const items = [
     isRunning
@@ -328,6 +370,15 @@ function openCmdMenu(e, command) {
             label: `在浏览器中打开 (: ${port})`,
             icon: ExternalLink,
             action: () => onPortClick(port),
+          },
+        ]
+      : []),
+    ...(saveDir
+      ? [
+          {
+            label: "打开产物目录",
+            icon: FolderOutput,
+            action: () => openDirPath(saveDir),
           },
         ]
       : []),
@@ -516,8 +567,9 @@ function onCmdDrop(e, targetCommand) {
         @contextmenu.prevent="openCmdMenu($event, command)"
       >
         <!-- 统一状态图标槽位: 严格固定尺寸与居中对齐,保证服务与任务行缩进绝对一致 -->
-        <span class="cmd-status-box" :title="isTaskCommand(command) ? '执行任务' : statusOf(command).label">
-          <Terminal v-if="isTaskCommand(command)" class="cmd-task-icon" />
+        <span class="cmd-status-box" :title="isPipelineCommand(command) ? '容器构建流水线' : (isTaskCommand(command) ? '执行任务' : statusOf(command).label)">
+          <Box v-if="isPipelineCommand(command)" class="cmd-task-icon cmd-pipe-icon" />
+          <Terminal v-else-if="isTaskCommand(command)" class="cmd-task-icon" />
           <span v-else class="status-dot" :class="statusOf(command).state">
             <span class="dot-inner"></span>
           </span>
@@ -537,7 +589,7 @@ function onCmdDrop(e, targetCommand) {
         </span>
 
         <!-- 智能清洗后的纯净命令摘要 (去除冗余 JVM 内存参数) -->
-        <span class="cmd-snippet" :title="command.cmd">{{ cleanCmdSnippet(command.cmd) }}</span>
+        <span class="cmd-snippet" :title="command.cmd">{{ cleanCmdSnippet(command.cmd, command) }}</span>
 
         <!-- 运行时长 / 退出状态 -->
         <span v-if="statusOf(command).state === 'running'" class="cmd-uptime">{{ uptimeOf(command) }}</span>

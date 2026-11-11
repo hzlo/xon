@@ -14,8 +14,9 @@ export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in
 
 /** @typedef {{version: number, groups: Group[], projects: Project[], scenarios: Scenario[], settings: AppSettings, services?: InfraService[]}} AppConfig */
 /** @typedef {{id: string, name: string, collapsed?: boolean, groups?: Group[], projects: Project[]}} Group */
-/** @typedef {{id: string, name: string, dir: string, commands: CommandSpec[]}} Project */
-/** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>, kind?: 'service'|'task'}} CommandSpec */
+/** @typedef {{id: string, name: string, dir: string, saveDir?: string, wslDistro?: string, collapsed?: boolean, commands: CommandSpec[]}} Project */
+/** @typedef {{repoDir?: string, imageName: string, imageTag?: string, dockerfilePath: string, buildContext?: string, gitPull?: boolean, exportTar?: boolean, saveDir?: string, wslDistro?: string}} PipelineSpec */
+/** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>, kind?: 'service'|'task'|'pipeline', pipeline?: PipelineSpec}} CommandSpec */
 /** @typedef {{id: string, name: string, cmd: string, stopCmd?: string, shell?: 'cmd'|'powershell', cwd?: string, env?: Record<string, string>, autoStart?: boolean}} InfraService */
 /** @typedef {{id: string, name: string, items: ScenarioItem[]}} Scenario */
 /** @typedef {{projectId: string, commandId: string, delaySeconds?: number}} ScenarioItem */
@@ -100,14 +101,23 @@ export function importConfig(path) {
   return impl.importConfig(path);
 }
 
+/**
+ * 读取任意文本文件内容(用于导入外部构建清单等)。
+ * @param {string} path
+ * @returns {Promise<string>}
+ */
+export function readTextFile(path) {
+  return impl.readTextFile(path);
+}
+
 /** 系统保存对话框;返回所选绝对路径,取消返回 null。 @returns {Promise<string|null>} */
 export function pickSavePath() {
   return impl.pickSavePath();
 }
 
 /** 系统打开对话框;返回所选绝对路径,取消返回 null。 @returns {Promise<string|null>} */
-export function pickOpenPath() {
-  return impl.pickOpenPath();
+export function pickOpenPath(opts) {
+  return impl.pickOpenPath(opts);
 }
 
 /** 系统文件夹选择对话框;返回所选目录绝对路径,取消返回 null。 @returns {Promise<string|null>} */
@@ -180,17 +190,18 @@ const tauriImpl = {
   listRunning: () => invoke("list_running"),
   exportConfig: (path, config) => invoke("export_config", { path, config }),
   importConfig: (path) => invoke("import_config", { path }),
+  readTextFile: (path) => invoke("read_text_file", { path }),
   pickSavePath: () =>
     dialogSave({
       title: "导出配置",
       defaultPath: "xon-config.json",
       filters: [{ name: "JSON", extensions: ["json"] }],
     }),
-  pickOpenPath: () =>
+  pickOpenPath: (opts = {}) =>
     dialogOpen({
-      title: "导入配置",
+      title: opts.title || "导入配置",
       multiple: false,
-      filters: [{ name: "JSON", extensions: ["json"] }],
+      filters: opts.filters || [{ name: "JSON", extensions: ["json"] }],
     }),
   pickFolder: () =>
     dialogOpen({
@@ -199,7 +210,7 @@ const tauriImpl = {
       multiple: false,
     }),
   openTerminal: (dir) => invoke("open_terminal", { dir }),
-  openDirInExplorer: (dir) => openPath(dir),
+  openDirInExplorer: (dir) => openPath((dir || "").replace(/\//g, "\\")),
   openBrowserUrl: async (url) => {
     try {
       await openUrl(url);
@@ -340,11 +351,16 @@ function createMockImpl() {
       if (raw == null) throw new Error("导入已取消");
       return JSON.parse(JSON.stringify(config));
     },
+    async readTextFile(path) {
+      const raw = window.prompt(`[mock] 请粘贴文件内容 (${path}):`);
+      if (raw == null) throw new Error("已取消读取");
+      return raw;
+    },
     async pickSavePath() {
       return window.prompt("[mock] 保存路径", "D:\\desktop\\xon-config.json");
     },
-    async pickOpenPath() {
-      return window.prompt("[mock] 打开路径", "D:\\desktop\\xon-config.json");
+    async pickOpenPath(opts = {}) {
+      return window.prompt(`[mock] ${opts.title || "打开路径"}`, "D:\\projects\\deloy\\package.config.json");
     },
     async pickFolder() {
       return window.prompt("[mock] 选择目录", "D:\\projects\\private");

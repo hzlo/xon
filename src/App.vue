@@ -574,7 +574,11 @@ async function onImport() {
       :kind="dialog.kind"
       :title="dialogTitle"
       :initial="dialogInitial"
-      :defaults="{ dir: dialog.project?.dir ?? dialog.parentGroup?.projects?.[0]?.dir ?? '' }"
+      :defaults="{
+        dir: dialog.project?.dir ?? dialog.parentGroup?.projects?.[0]?.dir ?? '',
+        saveDir: dialog.project?.saveDir ?? '',
+        wslDistro: dialog.project?.wslDistro ?? '',
+      }"
       @submit="submitDialog"
       @cancel="closeDialog"
     />

@@ -5,6 +5,7 @@ import {
   Copy,
   Eraser,
   ExternalLink,
+  FolderOutput,
   Play,
   Pause,
   RotateCw,
@@ -14,11 +15,12 @@ import {
   X,
 } from "lucide-vue-next";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { openBrowserUrl } from "../api.js";
+import { openBrowserUrl, openDirInExplorer } from "../api.js";
 import ContextMenu from "./ContextMenu.vue";
 import {
   clearLog,
   commandKey,
+  effectiveSaveDir,
   formatDuration,
   formatTime,
   locateCommand,
@@ -44,6 +46,18 @@ const selKey = computed(() =>
 );
 const proc = computed(() => (selKey.value ? runningOf(selKey.value) : null));
 const lines = computed(() => store.selectedLines.value);
+const selSaveDir = computed(() =>
+  sel.value ? effectiveSaveDir(sel.value.project, sel.value.command) : "",
+);
+
+async function onOpenSaveDir() {
+  if (!selSaveDir.value) return;
+  try {
+    await openDirInExplorer(selSaveDir.value);
+  } catch (e) {
+    notify(String(e));
+  }
+}
 
 // ---- ANSI 与高密度日志渲染 ----
 // 日志行对象入缓冲后不再变化,按行 id 缓存解析结果,避免滚屏/搜索时重复解析。
@@ -560,6 +574,15 @@ function onLogContextMenu(e) {
           @click="onStop"
         >
           <Square />
+        </button>
+
+        <button
+          v-if="selSaveDir"
+          class="btn-ghost icon-btn"
+          :title="`打开产物目录 (${selSaveDir})`"
+          @click="onOpenSaveDir"
+        >
+          <FolderOutput />
         </button>
 
         <button class="btn-ghost icon-btn" title="清空日志" @click="onClear">

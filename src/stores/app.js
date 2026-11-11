@@ -4,6 +4,11 @@
 
 import { computed, reactive, ref, shallowReactive } from "vue";
 import * as api from "../api.js";
+import {
+  buildPipelineStartPayload,
+  formatPipelineSummary,
+  parseDeloyConfig,
+} from "../utils/pipeline.js";
 
 const MAX_LOG_LINES = 5000;
 const LOG_FLUSH_MS = 50;
@@ -439,6 +444,8 @@ export function addProject(spec) {
     id: genId("p"),
     name: form.name || "新项目",
     dir: form.dir || "",
+    saveDir: form.saveDir || "",
+    wslDistro: form.wslDistro || "",
     collapsed: false,
     commands: [],
   };
@@ -447,9 +454,11 @@ export function addProject(spec) {
   return project;
 }
 
-export function updateProject(project, { name, dir }) {
+export function updateProject(project, { name, dir, saveDir, wslDistro }) {
   project.name = name;
   project.dir = dir;
+  if (saveDir !== undefined) project.saveDir = saveDir;
+  if (wslDistro !== undefined) project.wslDistro = wslDistro;
   persist();
 }
 
@@ -479,17 +488,33 @@ export function reorderCommands(project, fromIndex, toIndex) {
   persist();
 }
 
-/** 判断是否为一次性任务/构建脚本 */
+/** 判断是否为容器构建流水线命令 */
+export function isPipelineCommand(command) {
+  return command?.kind === "pipeline";
+}
+
+/** 计算命令生效的产物输出目录(命令级覆盖 > 项目级默认) */
+export function effectiveSaveDir(project, command) {
+  if (command?.kind === "pipeline" && command?.pipeline) {
+    return (command.pipeline.saveDir || "").trim() || (project?.saveDir || "").trim();
+  }
+  return (project?.saveDir || "").trim();
+}
+
+/** 判断是否为一次性任务/构建脚本(含 pipeline) */
 export function isTaskCommand(command) {
   if (!command) return false;
-  if (command.kind === "task") return true;
+  if (command.kind === "task" || command.kind === "pipeline") return true;
   if (command.kind === "service") return false;
   const text = `${command.name || ""} ${command.cmd || ""}`.toLowerCase();
   return /build|package|clean|shutdown|deploy|copy|打包|编译|关机|发布/i.test(text);
 }
 
 /** 智能清洗命令行显示,去除冗余 JVM 内存参数,提取核心目标 */
-export function cleanCmdSnippet(cmd) {
+export function cleanCmdSnippet(cmd, command = null) {
+  if (command?.kind === "pipeline" && command?.pipeline) {
+    return formatPipelineSummary(command.pipeline);
+  }
   if (!cmd) return "";
   const trimmed = cmd.trim();
 
@@ -533,15 +558,18 @@ export function cleanCmdSnippet(cmd) {
 }
 
 export function addCommand(project, spec) {
+  const isPipeline = spec.kind === "pipeline" && spec.pipeline;
+  const pipeline = isPipeline ? { ...spec.pipeline } : undefined;
   const command = {
     id: genId("c"),
     name: spec.name,
-    cmd: spec.cmd,
+    cmd: isPipeline ? formatPipelineSummary(pipeline) : spec.cmd,
     stopCmd: spec.stopCmd || "",
-    shell: spec.shell || "cmd",
-    cwd: spec.cwd,
-    env: spec.env,
+    shell: isPipeline ? "powershell" : spec.shell || "cmd",
+    cwd: isPipeline ? pipeline.repoDir || "" : spec.cwd || "",
+    env: spec.env ?? {},
     kind: spec.kind || (isTaskCommand(spec) ? "task" : "service"),
+    ...(pipeline ? { pipeline } : {}),
   };
   project.commands.push(command);
   persist();
@@ -549,13 +577,22 @@ export function addCommand(project, spec) {
 }
 
 export function updateCommand(command, spec) {
+  const isPipeline = spec.kind === "pipeline" && spec.pipeline;
   command.name = spec.name;
-  command.cmd = spec.cmd;
   command.stopCmd = spec.stopCmd || "";
-  command.shell = spec.shell || "cmd";
-  command.cwd = spec.cwd;
-  command.env = spec.env;
+  command.env = spec.env ?? {};
   if (spec.kind) command.kind = spec.kind;
+  if (isPipeline) {
+    command.pipeline = { ...spec.pipeline };
+    command.cmd = formatPipelineSummary(command.pipeline);
+    command.shell = "powershell";
+    command.cwd = command.pipeline.repoDir || "";
+  } else {
+    delete command.pipeline;
+    command.cmd = spec.cmd;
+    command.shell = spec.shell || "cmd";
+    command.cwd = spec.cwd || "";
+  }
   persist();
 }
 
@@ -706,16 +743,35 @@ async function startCommandCore(project, command) {
     pendingByPid.delete(prevPid);
     earlyExits.delete(prevPid);
   }
-  const req = {
-    projectId: project.id,
-    commandId: command.id,
-    commandName: command.name,
-    cmd: command.cmd,
-    stopCmd: command.stopCmd || "",
-    shell: command.shell || "cmd",
-    cwd: command.cwd || project.dir || "",
-    env: command.env ?? {},
-  };
+  let req;
+  if (command.kind === "pipeline" && command.pipeline) {
+    const payload = buildPipelineStartPayload(project, command);
+    req = {
+      projectId: project.id,
+      commandId: command.id,
+      commandName: command.name,
+      cmd: payload.cmd,
+      stopCmd: "",
+      shell: payload.shell,
+      cwd: payload.cwd,
+      env: payload.env,
+    };
+  } else {
+    const env = { ...(command.env ?? {}) };
+    if (project?.saveDir && !("XON_SAVE_DIR" in env)) {
+      env.XON_SAVE_DIR = project.saveDir;
+    }
+    req = {
+      projectId: project.id,
+      commandId: command.id,
+      commandName: command.name,
+      cmd: command.cmd,
+      stopCmd: command.stopCmd || "",
+      shell: command.shell || "cmd",
+      cwd: command.cwd || project.dir || "",
+      env,
+    };
+  }
   const info = await api.startProcess(req).catch((e) => {
     notify(`启动「${command.name}」失败:${e}`);
     return null;
@@ -899,6 +955,7 @@ export function duplicateCommand(project, command) {
     cwd: command.cwd || "",
     env: { ...(command.env ?? {}) },
     kind: command.kind,
+    ...(command.pipeline ? { pipeline: { ...command.pipeline } } : {}),
   };
   const newCmd = addCommand(project, spec);
   notify(`已克隆命令「${newCmd.name}」`);
@@ -1124,6 +1181,57 @@ export async function importConfigFromFile() {
   persist();
   selectFirstCommand();
   return true;
+}
+
+/** 从原 deloy package.config.json 导入容器构建任务到指定项目(或新建项目) */
+export async function importDeloyFromFile(targetProject = null) {
+  const path = await api.pickOpenPath({
+    title: "选择 Deloy 构建配置文件 (package.config.json)",
+    filters: [{ name: "JSON", extensions: ["json"] }],
+  });
+  if (!path) return null;
+
+  const text = await api.readTextFile(path);
+  const baseDir = path.replace(/[\\/][^\\/]+$/, "");
+  const parsed = parseDeloyConfig(text, baseDir);
+
+  let project = targetProject;
+  if (!project) {
+    const dirName = baseDir.split(/[\\/]/).filter(Boolean).pop() || "容器构建";
+    project = addProject({
+      name: dirName,
+      dir: baseDir,
+      saveDir: parsed.saveDir,
+      wslDistro: parsed.wslDistro,
+    });
+  } else {
+    if (!project.saveDir && parsed.saveDir) project.saveDir = parsed.saveDir;
+    if (!project.wslDistro && parsed.wslDistro) project.wslDistro = parsed.wslDistro;
+    if (!project.dir && baseDir) project.dir = baseDir;
+  }
+
+  let added = 0;
+  let updated = 0;
+  for (const spec of parsed.commands) {
+    const existing = (project.commands ?? []).find(
+      (c) =>
+        c.kind === "pipeline" &&
+        c.pipeline &&
+        c.pipeline.imageName === spec.pipeline.imageName &&
+        c.pipeline.dockerfilePath === spec.pipeline.dockerfilePath,
+    );
+    if (existing) {
+      updateCommand(existing, spec);
+      updated++;
+    } else {
+      addCommand(project, spec);
+      added++;
+    }
+  }
+
+  persist();
+  notify(`已导入到「${project.name}」: 新增 ${added} 项, 更新 ${updated} 项`);
+  return { project, added, updated };
 }
 
 // ---------------------------------------------------------------- 确认框 / 轻提示
