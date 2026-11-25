@@ -7,8 +7,6 @@ import * as api from "../api.js";
 import {
   buildPipelineStartPayload,
   formatPipelineSummary,
-  isWslPath,
-  parseDeloyConfig,
 } from "../utils/pipeline.js";
 
 const MAX_LOG_LINES = 5000;
@@ -123,7 +121,7 @@ export const store = {
   /** 配置读取失败原因;非空时禁止自动保存,避免用默认空配置覆盖原文件 */
   loadError: ref(null),
   /** @type {import("vue").Reactive<import("api.js").AppConfig>} */
-  config: reactive({ version: 1, groups: [], projects: [], services: [], scenarios: [], settings: { ...DEFAULT_SETTINGS } }),
+  config: reactive({ version: 1, groups: [], projects: [], scenarios: [], settings: { ...DEFAULT_SETTINGS } }),
   /** pid → { pid, projectId, commandId, commandName, key, startedAtMs } */
   running: reactive(new Map()),
   /** 通过方案启动的方案 ID 集合(用于控制标题栏方案停止按钮) */
@@ -163,18 +161,6 @@ export function commandKey(projectId, commandId) {
 /** 按 key 在配置列表中定位 { project, command }; 找不到返回 null */
 export function locateCommand(key) {
   if (!key) return null;
-  if (key.startsWith("__infra__/")) {
-    const id = key.slice("__infra__/".length);
-    const service = (store.config.services ?? []).find((s) => s.id === id);
-    if (service) {
-      return {
-        group: null,
-        project: { id: "__infra__", name: "基础设施", dir: "" },
-        command: service,
-        isInfra: true,
-      };
-    }
-  }
   for (const project of store.config.projects ?? []) {
     for (const command of project.commands ?? []) {
       if (command.id && commandKey(project.id, command.id) === key) {
@@ -299,7 +285,6 @@ export async function initStore() {
     // 自动平滑升级为两级架构: 展开历史 groups 合并进 projects
     const { projects, migrated } = flattenLegacyGroups(config);
     store.config.projects = projects;
-    store.config.services = config.services ?? [];
     store.config.scenarios = config.scenarios ?? [];
     store.config.settings = { ...DEFAULT_SETTINGS, ...(config.settings ?? {}) };
     if (typeof store.config.settings.accent === "string" && store.config.settings.accent.toLowerCase().replace("#", "") === ["22", "c5", "5e"].join("")) {
@@ -376,16 +361,6 @@ export async function initStore() {
   store.loaded.value = true;
   if (!config) return;
   selectFirstCommand();
-
-  // 随软件启动自动执行标记为 autoStart 的基础设施服务
-  for (const svc of store.config.services ?? []) {
-    if (svc.autoStart) {
-      const key = commandKey("__infra__", svc.id);
-      if (!runningOf(key)) {
-        startInfraService(svc);
-      }
-    }
-  }
 }
 
 // ---------------------------------------------------------------- 持久化
@@ -402,7 +377,6 @@ export function persist() {
         version: store.config.version,
         groups: store.config.groups,
         projects: store.config.projects ?? [],
-        services: store.config.services ?? [],
         scenarios: store.config.scenarios ?? [],
         settings: store.config.settings,
       }),
@@ -446,7 +420,10 @@ export function addProject(spec) {
     name: form.name || "新项目",
     dir: form.dir || "",
     saveDir: form.saveDir || "",
-    wslDistro: form.wslDistro || "",
+    sshHost: form.sshHost || "",
+    gitTunnel: form.gitTunnel || "",
+    remoteSaveDir: form.remoteSaveDir || "",
+    remotePublicUrl: form.remotePublicUrl || "",
     collapsed: false,
     commands: [],
   };
@@ -455,11 +432,14 @@ export function addProject(spec) {
   return project;
 }
 
-export function updateProject(project, { name, dir, saveDir, wslDistro }) {
+export function updateProject(project, { name, dir, saveDir, sshHost, gitTunnel, remoteSaveDir, remotePublicUrl }) {
   project.name = name;
   project.dir = dir;
   if (saveDir !== undefined) project.saveDir = saveDir;
-  if (wslDistro !== undefined) project.wslDistro = wslDistro;
+  if (sshHost !== undefined) project.sshHost = sshHost;
+  if (gitTunnel !== undefined) project.gitTunnel = gitTunnel;
+  if (remoteSaveDir !== undefined) project.remoteSaveDir = remoteSaveDir;
+  if (remotePublicUrl !== undefined) project.remotePublicUrl = remotePublicUrl;
   persist();
 }
 
@@ -494,12 +474,18 @@ export function isPipelineCommand(command) {
   return command?.kind === "pipeline";
 }
 
-/** 计算命令生效的产物输出目录(命令级覆盖 > 项目级默认) */
+/** 计算命令生效的产物输出目录或下载地址(命令级覆盖 > 项目级默认) */
 export function effectiveSaveDir(project, command) {
   if (command?.kind === "pipeline" && command?.pipeline) {
-    return (command.pipeline.saveDir || "").trim() || (project?.saveDir || "").trim();
+    const p = command.pipeline;
+    return (
+      (p.remotePublicUrl || "").trim() ||
+      (project?.remotePublicUrl || "").trim() ||
+      (p.remoteSaveDir || "").trim() ||
+      (project?.remoteSaveDir || "").trim()
+    );
   }
-  return (project?.saveDir || "").trim();
+  return (project?.remotePublicUrl || "").trim() || (project?.saveDir || "").trim();
 }
 
 /** 判断是否为一次性任务/构建脚本(含 pipeline) */
@@ -561,14 +547,13 @@ export function cleanCmdSnippet(cmd, command = null) {
 export function addCommand(project, spec) {
   const isPipeline = spec.kind === "pipeline" && spec.pipeline;
   const pipeline = isPipeline ? { ...spec.pipeline } : undefined;
-  const pipeCwd = isPipeline && !isWslPath(pipeline.repoDir) ? pipeline.repoDir || "" : "";
   const command = {
     id: genId("c"),
     name: spec.name,
     cmd: isPipeline ? formatPipelineSummary(pipeline) : spec.cmd,
     stopCmd: spec.stopCmd || "",
     shell: isPipeline ? "powershell" : spec.shell || "cmd",
-    cwd: isPipeline ? pipeCwd : spec.cwd || "",
+    cwd: isPipeline ? "" : spec.cwd || "",
     env: spec.env ?? {},
     kind: spec.kind || (isTaskCommand(spec) ? "task" : "service"),
     ...(pipeline ? { pipeline } : {}),
@@ -588,7 +573,7 @@ export function updateCommand(command, spec) {
     command.pipeline = { ...spec.pipeline };
     command.cmd = formatPipelineSummary(command.pipeline);
     command.shell = "powershell";
-    command.cwd = isWslPath(command.pipeline.repoDir) ? "" : command.pipeline.repoDir || "";
+    command.cwd = "";
   } else {
     delete command.pipeline;
     command.cmd = spec.cmd;
@@ -596,73 +581,6 @@ export function updateCommand(command, spec) {
     command.cwd = spec.cwd || "";
   }
   persist();
-}
-
-// ---------------------------------------------------------------- 基础设施服务 CRUD
-
-export function addInfraService(spec) {
-  const service = {
-    id: genId("infra"),
-    name: spec.name,
-    cmd: spec.cmd,
-    stopCmd: spec.stopCmd || "",
-    shell: spec.shell || "cmd",
-    cwd: spec.cwd || "",
-    env: spec.env || {},
-    autoStart: !!spec.autoStart,
-  };
-  store.config.services ??= [];
-  store.config.services.push(service);
-  persist();
-  return service;
-}
-
-export function updateInfraService(service, spec) {
-  service.name = spec.name;
-  service.cmd = spec.cmd;
-  service.stopCmd = spec.stopCmd || "";
-  service.shell = spec.shell || "cmd";
-  service.cwd = spec.cwd || "";
-  service.env = spec.env || {};
-  service.autoStart = !!spec.autoStart;
-  persist();
-}
-
-export function removeInfraService(service) {
-  stopIfRunning({ id: "__infra__" }, service, true);
-  const key = commandKey("__infra__", service.id);
-  if (store.selectedKey.value === key) store.selectedKey.value = null;
-  const list = store.config.services ?? [];
-  const idx = list.indexOf(service);
-  if (idx >= 0) list.splice(idx, 1);
-  persist();
-}
-
-export function duplicateInfraService(service) {
-  const spec = {
-    name: `${service.name} (副本)`,
-    cmd: service.cmd,
-    stopCmd: service.stopCmd || "",
-    shell: service.shell || "cmd",
-    cwd: service.cwd || "",
-    env: { ...(service.env ?? {}) },
-    autoStart: service.autoStart,
-  };
-  const newService = addInfraService(spec);
-  notify(`已克隆基础设施服务「${newService.name}」`);
-  return newService;
-}
-
-export function startInfraService(service) {
-  return startCommand({ id: "__infra__", name: "基础设施", dir: "" }, service);
-}
-
-export function stopInfraService(service) {
-  return stopIfRunning({ id: "__infra__", name: "基础设施", dir: "" }, service);
-}
-
-export function restartInfraService(service) {
-  return restartCommand({ id: "__infra__", name: "基础设施", dir: "" }, service);
 }
 
 export function removeCommand(project, command) {
@@ -1017,10 +935,6 @@ export async function stopAll() {
 /** 自动选中第一个有效命令 */
 export function selectFirstCommand() {
   if (store.selectedKey.value) return;
-  if ((store.config.services ?? []).length > 0) {
-    store.selectedKey.value = commandKey("__infra__", store.config.services[0].id);
-    return;
-  }
   for (const p of store.config.projects ?? []) {
     if (p.commands?.length > 0) {
       store.selectedKey.value = commandKey(p.id, p.commands[0].id);
@@ -1150,7 +1064,6 @@ export async function exportConfigToFile() {
       version: store.config.version,
       groups: store.config.groups,
       projects: store.config.projects ?? [],
-      services: store.config.services ?? [],
       scenarios: store.config.scenarios ?? [],
       settings: store.config.settings,
     }),
@@ -1164,7 +1077,7 @@ export async function importConfigFromFile() {
   if (!path) return false;
   const imported = await api.importConfig(path);
   const ok = await confirmAction(
-    `导入将覆盖当前的项目、基础设施、运行方案与设置,继续?\n来源:${path}`,
+    `导入将覆盖当前的项目、运行方案与设置,继续?\n来源:${path}`,
     { title: "导入配置", danger: true },
   );
   if (!ok) return false;
@@ -1175,7 +1088,6 @@ export async function importConfigFromFile() {
   store.config.version = imported.version ?? 1;
   store.config.groups = [];
   store.config.projects = projects;
-  store.config.services = imported.services ?? [];
   store.config.scenarios = imported.scenarios ?? [];
   store.config.settings = { ...DEFAULT_SETTINGS, ...(imported.settings ?? {}) };
   applySettings(store.config.settings);
@@ -1183,57 +1095,6 @@ export async function importConfigFromFile() {
   persist();
   selectFirstCommand();
   return true;
-}
-
-/** 从原 deloy package.config.json 导入容器构建任务到指定项目(或新建项目) */
-export async function importDeloyFromFile(targetProject = null) {
-  const path = await api.pickOpenPath({
-    title: "选择 Deloy 构建配置文件 (package.config.json)",
-    filters: [{ name: "JSON", extensions: ["json"] }],
-  });
-  if (!path) return null;
-
-  const text = await api.readTextFile(path);
-  const baseDir = path.replace(/[\\/][^\\/]+$/, "");
-  const parsed = parseDeloyConfig(text, baseDir);
-
-  let project = targetProject;
-  if (!project) {
-    const dirName = baseDir.split(/[\\/]/).filter(Boolean).pop() || "容器构建";
-    project = addProject({
-      name: dirName,
-      dir: baseDir,
-      saveDir: parsed.saveDir,
-      wslDistro: parsed.wslDistro,
-    });
-  } else {
-    if (!project.saveDir && parsed.saveDir) project.saveDir = parsed.saveDir;
-    if (!project.wslDistro && parsed.wslDistro) project.wslDistro = parsed.wslDistro;
-    if (!project.dir && baseDir) project.dir = baseDir;
-  }
-
-  let added = 0;
-  let updated = 0;
-  for (const spec of parsed.commands) {
-    const existing = (project.commands ?? []).find(
-      (c) =>
-        c.kind === "pipeline" &&
-        c.pipeline &&
-        c.pipeline.imageName === spec.pipeline.imageName &&
-        c.pipeline.dockerfilePath === spec.pipeline.dockerfilePath,
-    );
-    if (existing) {
-      updateCommand(existing, spec);
-      updated++;
-    } else {
-      addCommand(project, spec);
-      added++;
-    }
-  }
-
-  persist();
-  notify(`已导入到「${project.name}」: 新增 ${added} 项, 更新 ${updated} 项`);
-  return { project, added, updated };
 }
 
 // ---------------------------------------------------------------- 确认框 / 轻提示

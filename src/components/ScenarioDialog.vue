@@ -348,7 +348,7 @@ defineExpose({ checkedCount: () => checkedCount.value });
               autocapitalize="off"
               class="input name-input"
               type="text"
-              placeholder="如: 开发环境全量启动"
+              placeholder="输入方案名称"
             />
           </div>
 

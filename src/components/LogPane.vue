@@ -53,7 +53,14 @@ const selSaveDir = computed(() =>
 async function onOpenSaveDir() {
   if (!selSaveDir.value) return;
   try {
-    await openDirInExplorer(selSaveDir.value);
+    const target = selSaveDir.value.trim();
+    if (/^https?:\/\//i.test(target)) {
+      await openBrowserUrl(target);
+    } else if (target.startsWith("/") || target.startsWith("~")) {
+      notify(`远端产物目录: ${target}`);
+    } else {
+      await openDirInExplorer(target);
+    }
   } catch (e) {
     notify(String(e));
   }

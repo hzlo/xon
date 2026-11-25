@@ -69,9 +69,6 @@ pub struct AppConfig {
     pub scenarios: Vec<Scenario>,
     #[serde(default)]
     pub settings: AppSettings,
-    /// 基础设施与运行时服务(如 WSL, Docker, Redis 等)
-    #[serde(default)]
-    pub services: Vec<InfraService>,
 }
 
 fn default_version() -> u32 {
@@ -162,7 +159,6 @@ impl Default for AppConfig {
             projects: Vec::new(),
             scenarios: Vec::new(),
             settings: AppSettings::default(),
-            services: Vec::new(),
         }
     }
 }
@@ -188,12 +184,21 @@ pub struct Project {
     pub name: String,
     #[serde(default)]
     pub dir: String,
-    /// 项目级产物默认输出目录(供容器流水线或注入 XON_SAVE_DIR 使用)
+    /// 项目级产物默认输出目录或浏览地址(本地路径或 http/https 链接)
     #[serde(default)]
     pub save_dir: String,
-    /// 项目级默认 WSL 发行版名称
+    /// 项目级默认远程 SSH 主机
     #[serde(default)]
-    pub wsl_distro: String,
+    pub ssh_host: String,
+    /// 项目级默认 Git 反向隧道映射
+    #[serde(default)]
+    pub git_tunnel: String,
+    /// 项目级默认远端产物导出目录
+    #[serde(default)]
+    pub remote_save_dir: String,
+    /// 项目级默认远端产物下载地址前缀
+    #[serde(default)]
+    pub remote_public_url: String,
     /// 折叠命令列表(纯 UI 状态)
     #[serde(default)]
     pub collapsed: bool,
@@ -239,9 +244,15 @@ pub struct PipelineSpec {
     #[serde(default = "default_true")]
     pub export_tar: bool,
     #[serde(default)]
-    pub save_dir: String,
+    pub ssh_host: String,
     #[serde(default)]
-    pub wsl_distro: String,
+    pub git_tunnel: String,
+    #[serde(default)]
+    pub remote_save_dir: String,
+    #[serde(default)]
+    pub remote_public_url: String,
+    #[serde(default = "default_true")]
+    pub prune_after_build: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -265,25 +276,6 @@ pub struct CommandSpec {
     /// 当 kind == "pipeline" 时的容器构建配置
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pipeline: Option<PipelineSpec>,
-}
-
-/// 基础设施服务(如 WSL, Docker Compose, Redis 等常驻系统服务)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InfraService {
-    pub id: String,
-    pub name: String,
-    pub cmd: String,
-    #[serde(default)]
-    pub stop_cmd: String,
-    #[serde(default = "default_shell")]
-    pub shell: String,
-    #[serde(default)]
-    pub cwd: String,
-    #[serde(default)]
-    pub env: HashMap<String, String>,
-    #[serde(default)]
-    pub auto_start: bool,
 }
 
 /// 启动请求(前端 api.js 的 StartRequest)
@@ -858,12 +850,6 @@ fn import_config(path: String) -> Result<AppConfig, String> {
     serde_json::from_str(&text).map_err(|e| format!("导入文件解析失败: {e}"))
 }
 
-/// 读取任意 UTF-8 文本文件(用于导入外部构建清单等纯 JSON/配置)
-#[tauri::command]
-fn read_text_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("读取文件失败: {e}"))
-}
-
 /// 在新控制台窗口打开目录
 #[tauri::command]
 fn open_terminal(dir: String) -> Result<(), String> {
@@ -1196,16 +1182,6 @@ async fn start_process(
     command.env("COLORTERM", "truecolor");
     command.env("SPRING_OUTPUT_ANSI_ENABLED", "ALWAYS");
 
-    // 跨 WSL 传递终端色彩环境变量
-    let wslenv = std::env::var("WSLENV").unwrap_or_default();
-    let forward_vars = "TERM/u:COLORTERM/u:FORCE_COLOR/u:CLICOLOR_FORCE/u";
-    let new_wslenv = if wslenv.is_empty() {
-        forward_vars.to_string()
-    } else {
-        format!("{wslenv}:{forward_vars}")
-    };
-    command.env("WSLENV", new_wslenv);
-
     // 3. 自定义环境变量覆盖 (允许用户配置覆盖默认行为)
     for (k, v) in &req.env {
         command.env(k, v);
@@ -1354,7 +1330,7 @@ async fn stop_process(registry: State<'_, ProcessRegistry>, pid: u32) -> Result<
         return Ok(false);
     };
 
-    // 如果指定了自定义停止命令, 优先执行析构指令(如 wsl --shutdown / docker compose down)
+    // 如果指定了自定义停止命令, 优先执行析构指令(如 docker compose down)
     if !stop_cmd.trim().is_empty() {
         run_stop_command(&stop_cmd, &shell, &cwd, &env).await;
 
@@ -1603,7 +1579,7 @@ mod tests {
         assert_eq!(lines, vec!["\"15:21:45.166 [main] INFO auth\""]);
     }
 
-    /// 管道持活: 只要 stdin 句柄保持打开, 依赖输入的命令(如 set /p 或 wsl/bash)就不会因 EOF 提前退出
+    /// 管道持活: 只要 stdin 句柄保持打开, 依赖输入的交互式命令就不会因 EOF 提前退出
     #[tokio::test]
     async fn piped_stdin_kept_open_prevents_premature_exit() {
         let mut child = Command::new("cmd")
@@ -1761,7 +1737,7 @@ fn stop_all_sync(app: &AppHandle) {
         (jobs, stop_cmds)
     };
 
-    // 退出前若有配置 stop_cmd 的进程, 先同步触发析构(如 wsl --shutdown)。
+    // 退出前若有配置 stop_cmd 的进程, 先同步触发析构。
     // 每条脚本最多等 3 秒,总预算 6 秒;超时直接杀掉,不能因为停止脚本卡住而让应用无法退出。
     let overall_deadline = std::time::Instant::now() + Duration::from_secs(6);
     for (stop_cmd, shell, cwd, env) in stop_cmds {
@@ -1848,7 +1824,6 @@ pub fn run() {
             save_config,
             export_config,
             import_config,
-            read_text_file,
             start_process,
             stop_process,
             stop_all_processes,

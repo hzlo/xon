@@ -6,7 +6,6 @@ import {
   ChevronDown,
   Copy,
   ExternalLink,
-  FileUp,
   FolderOpen,
   FolderOutput,
   MoreHorizontal,
@@ -15,23 +14,19 @@ import {
   Play,
   Plus,
   RotateCw,
-  Server,
   Square,
   SquareTerminal,
   Terminal,
   Trash2,
 } from "lucide-vue-next";
 import {
-  addInfraService,
   cleanCmdSnippet,
-  clearLog,
   commandKey,
   confirmAction,
   copyToClipboard,
   duplicateCommand,
   effectiveSaveDir,
   formatDuration,
-  importDeloyFromFile,
   isPipelineCommand,
   isTaskCommand,
   notify,
@@ -200,17 +195,15 @@ async function openDirPath(dir) {
   const d = (dir || "").trim();
   if (!d) return;
   try {
-    await openDirInExplorer(d);
+    if (/^https?:\/\//i.test(d)) {
+      await openBrowserUrl(d);
+    } else if (d.startsWith("/") || d.startsWith("~")) {
+      notify(`远端产物目录: ${d}`);
+    } else {
+      await openDirInExplorer(d);
+    }
   } catch (e) {
     notify(String(e));
-  }
-}
-
-async function onImportDeloy(project) {
-  try {
-    await importDeloyFromFile(project);
-  } catch (e) {
-    notify(`导入失败: ${e?.message || e}`);
   }
 }
 
@@ -227,98 +220,67 @@ async function openIn(fn) {
   }
 }
 
-async function convertProjectToInfra(project) {
-  const ok = await confirmAction(
-    `确定要将项目「${project.name}」转换为底座基础设施服务吗? 将自动合并提取启动与关机命令。`,
-    { title: "转换为基础设施服务", danger: true },
-  );
-  if (!ok) return;
-  const cmds = project.commands ?? [];
-  const startCmd = cmds.find((c) => /启动|start|run|up/i.test(c.name)) || cmds[0];
-  const stopCmd =
-    cmds.find((c) => /关机|停止|stop|down|shutdown/i.test(c.name)) ||
-    cmds.find((c) => /shutdown|stop/i.test(c.cmd));
-
-  addInfraService({
-    name: project.name,
-    cmd: startCmd?.cmd || "",
-    stopCmd: stopCmd?.cmd || startCmd?.stopCmd || "",
-    shell: startCmd?.shell || "cmd",
-    cwd: project.dir || startCmd?.cwd || "",
-    env: startCmd?.env || {},
-    autoStart: false,
-  });
-  removeProject(project);
-  notify(`已将「${project.name}」转换为基础设施服务并置底`);
-}
-
 function openProjectMenu(e) {
+  const hasCommands = (props.project.commands?.length ?? 0) > 0;
+  const projectDir = (props.project.dir || "").trim();
+  const saveTarget = (props.project.remotePublicUrl || props.project.saveDir || "").trim();
+  const isOpenableSave = saveTarget && !saveTarget.startsWith("/") && !saveTarget.startsWith("~");
+
   const items = [
-    {
-      label: "启动全部服务",
-      icon: Play,
-      action: () => startProject(props.project),
-    },
-    {
-      label: "停止全部服务",
-      icon: Square,
-      disabled: runningCommandsCount.value === 0,
-      danger: true,
-      action: () => stopProject(props.project),
-    },
-    { divider: true },
+    ...(hasCommands
+      ? [
+          {
+            label: "启动全部服务",
+            icon: Play,
+            action: () => startProject(props.project),
+          },
+          ...(runningCommandsCount.value > 0
+            ? [
+                {
+                  label: "停止全部服务",
+                  icon: Square,
+                  danger: true,
+                  action: () => stopProject(props.project),
+                },
+              ]
+            : []),
+          { divider: true },
+        ]
+      : []),
     {
       label: "新建命令",
       icon: Plus,
       action: () => handlers.create({ kind: "command", mode: "create", project: props.project }),
     },
-    {
-      label: "导入 Deloy 构建配置…",
-      icon: FileUp,
-      action: () => onImportDeloy(props.project),
-    },
-    {
-      label: "在文件管理器中打开",
-      icon: FolderOpen,
-      action: () => openIn(openDirInExplorer),
-    },
-    ...(props.project.saveDir
+    ...(projectDir
       ? [
           {
-            label: "打开产物目录",
-            icon: FolderOutput,
-            action: () => openDirPath(props.project.saveDir),
+            label: "在文件管理器中打开",
+            icon: FolderOpen,
+            action: () => openIn(openDirInExplorer),
+          },
+          {
+            label: "在控制台中打开",
+            icon: SquareTerminal,
+            action: () => openIn(openTerminal),
           },
         ]
       : []),
-    {
-      label: "在控制台中打开",
-      icon: SquareTerminal,
-      action: () => openIn(openTerminal),
-    },
-    {
-      label: "复制项目目录",
-      icon: Copy,
-      disabled: !props.project.dir,
-      action: () => copyToClipboard(props.project.dir, "已复制项目目录"),
-    },
+    ...(isOpenableSave
+      ? [
+          {
+            label: /^https?:\/\//i.test(saveTarget) ? "打开产物下载页" : "打开产物目录",
+            icon: FolderOutput,
+            action: () => openDirPath(saveTarget),
+          },
+        ]
+      : []),
     { divider: true },
-    {
-      label: props.project.collapsed ? "展开项目" : "折叠项目",
-      action: toggle,
-    },
     {
       label: "编辑项目",
       icon: Pencil,
       action: () => handlers.edit({ kind: "project", mode: "edit", project: props.project }),
     },
-    { divider: true },
-    {
-      label: "转换为基础设施服务",
-      icon: Server,
-      action: () => convertProjectToInfra(props.project),
-    },
-    { divider: true },
     {
       label: "删除项目",
       icon: Trash2,
@@ -339,8 +301,8 @@ function openCmdMenu(e, command) {
   const key = keyOf(command);
   const isRunning = runningOf(key) != null;
   const port = portNumberOf(command.cmd);
-  const pid = isRunning ? runningOf(key)?.pid : store.lastPidByCommand.get(key);
   const saveDir = effectiveSaveDir(props.project, command);
+  const isOpenableSave = saveDir && !saveDir.startsWith("/") && !saveDir.startsWith("~");
 
   const items = [
     isRunning
@@ -373,30 +335,29 @@ function openCmdMenu(e, command) {
           },
         ]
       : []),
-    ...(saveDir
+    ...(isOpenableSave
       ? [
           {
-            label: "打开产物目录",
+            label: /^https?:\/\//i.test(saveDir) ? "打开产物下载页" : "打开产物目录",
             icon: FolderOutput,
             action: () => openDirPath(saveDir),
           },
         ]
       : []),
     { divider: true },
-    {
-      label: "复制启动命令",
-      icon: Copy,
-      action: () => copyToClipboard(command.cmd, "已复制命令"),
-    },
+    ...(!isPipelineCommand(command) && command.cmd
+      ? [
+          {
+            label: "复制启动命令",
+            icon: Copy,
+            action: () => copyToClipboard(command.cmd, "已复制命令"),
+          },
+        ]
+      : []),
     {
       label: "克隆命令",
       icon: Plus,
       action: () => duplicateCommand(props.project, command),
-    },
-    {
-      label: "清空日志",
-      disabled: !pid || !store.logs.has(pid),
-      action: () => clearLog(pid),
     },
     { divider: true },
     {

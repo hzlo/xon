@@ -15,7 +15,6 @@ import {
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   addCommand,
-  addInfraService,
   addProject,
   addScenario,
   commandKey,
@@ -33,7 +32,6 @@ import {
   stopPid,
   stopScenario,
   updateCommand,
-  updateInfraService,
   updateProject,
   updateScenario,
   updateSettings,
@@ -161,10 +159,8 @@ const dialogTitle = computed(() => {
   const d = dialog.value;
   if (!d) return "";
   if (d.mode === "edit") {
-    if (d.kind === "infra") return "编辑基础设施服务";
     return d.kind === "command" ? "编辑命令" : "编辑项目";
   }
-  if (d.kind === "infra") return "新建基础设施服务";
   return d.kind === "command"
     ? (d.project ? `在「${d.project.name}」中新建命令` : "新建命令")
     : "新建项目";
@@ -173,7 +169,7 @@ const dialogTitle = computed(() => {
 const dialogInitial = computed(() => {
   const d = dialog.value;
   if (!d || d.mode !== "edit") return {};
-  return d.service ?? d.command ?? d.project ?? {};
+  return d.command ?? d.project ?? {};
 });
 
 function submitDialog(form) {
@@ -189,14 +185,6 @@ function submitDialog(form) {
     } else {
       const cmd = addCommand(d.project, form);
       store.selectedKey.value = commandKey(d.project.id, cmd.id);
-    }
-  } else if (d.kind === "infra") {
-    if (d.mode === "edit") {
-      updateInfraService(d.service, form);
-      store.selectedKey.value = commandKey("__infra__", d.service.id);
-    } else {
-      const svc = addInfraService(form);
-      store.selectedKey.value = commandKey("__infra__", svc.id);
     }
   }
   closeDialog();
@@ -577,7 +565,10 @@ async function onImport() {
       :defaults="{
         dir: dialog.project?.dir ?? dialog.parentGroup?.projects?.[0]?.dir ?? '',
         saveDir: dialog.project?.saveDir ?? '',
-        wslDistro: dialog.project?.wslDistro ?? '',
+        sshHost: dialog.project?.sshHost ?? '',
+        gitTunnel: dialog.project?.gitTunnel ?? '',
+        remoteSaveDir: dialog.project?.remoteSaveDir ?? '',
+        remotePublicUrl: dialog.project?.remotePublicUrl ?? '',
       }"
       @submit="submitDialog"
       @cancel="closeDialog"
